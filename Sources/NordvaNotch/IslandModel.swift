@@ -32,6 +32,8 @@ final class IslandModel: ObservableObject {
     @Published var banner: Banner?
     @Published var showReply = true
     @Published var hovering = false
+    /// The pill under the pointer while the peek strip is out.
+    @Published var peekHover: Int?
     @Published var timerEnd: Date?
     @Published var timerMinutes = 0
     /// A spinner and a count next to the notch while sessions work.

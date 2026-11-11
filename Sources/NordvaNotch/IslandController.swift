@@ -75,6 +75,9 @@ final class IslandController {
     private var seen: [String: Double]
     private let launch = Date().timeIntervalSince1970
     private var listOpen = false
+    private var peekOpen = false
+    private var hoverWork: DispatchWorkItem?
+    private var peekCollapseWork: DispatchWorkItem?
     /// Something was held back during a call; keep the dot even if the compact wings are off.
     private var quietPending = false
     private var bannerWork: DispatchWorkItem?
@@ -234,13 +237,23 @@ final class IslandController {
                 NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
             }
         }
-        if listOpen { closeList() } else { dismissBanner() }
+        if listOpen {
+            closeList()
+        } else if peekOpen {
+            closePeek()
+        } else {
+            dismissBanner()
+        }
     }
 
     // MARK: Modes
 
     func openList() {
         bannerWork?.cancel()
+        hoverWork?.cancel()
+        hoverWork = nil
+        peekOpen = false
+        model.peekHover = nil
         model.banner = nil
         quietPending = false
         model.timerDone = false
@@ -260,6 +273,8 @@ final class IslandController {
 
     private func show(_ banner: Banner) {
         guard !listOpen else { return }
+        peekOpen = false
+        model.peekHover = nil
         if prefs.placement == .pointer, let screen = pointerScreen() { place(on: screen) }
         model.banner = banner
         refreshMode()
@@ -297,13 +312,15 @@ final class IslandController {
             mode = .list(rows: model.rows.count, timer: prefs.timerEnabled)
         } else if model.banner != nil {
             mode = .banner
+        } else if peekOpen {
+            mode = .peek(pills: min(model.rows.count, IslandLayout.maxPills))
         } else if compactWanted {
             mode = .compact(timer: model.timerRunning)
         } else {
             mode = .idle
         }
         if model.mode != mode { model.mode = mode }
-        if !listOpen && model.banner == nil { scheduleGoHome() }
+        if !listOpen && model.banner == nil && !peekOpen { scheduleGoHome() }
         pointerMoved()
     }
 
@@ -321,11 +338,71 @@ final class IslandController {
         let p = NSEvent.mouseLocation
         let inside = IslandLayout.isInteractive(mode: model.mode, anchor: model.anchor, x: p.x, y: p.y)
         if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
+        trackPeek(inside: inside, at: p)
         guard model.hovering != inside else { return }
         model.hovering = inside
         if listOpen {
             if inside { collapseWork?.cancel() } else { scheduleCollapse(after: 0.7) }
         }
+    }
+
+    /// Resting on the notch slides out the peek strip; a pointer that only passes it on the
+    /// way to the menu bar spends far less than the delay inside and never triggers it.
+    private func trackPeek(inside: Bool, at p: NSPoint) {
+        if peekOpen {
+            if persistsPeek { return }
+            let count = min(model.rows.count, IslandLayout.maxPills)
+            let hover = inside ? IslandLayout.pillIndex(x: p.x, y: p.y, count: count, anchor: model.anchor) : nil
+            if model.peekHover != hover { model.peekHover = hover }
+            if inside {
+                peekCollapseWork?.cancel()
+                peekCollapseWork = nil
+            } else if peekCollapseWork == nil {
+                let work = DispatchWorkItem { [weak self] in self?.closePeek() }
+                peekCollapseWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+            }
+            return
+        }
+        var resting = model.mode == .idle
+        if case .compact = model.mode { resting = true }
+        guard inside, resting, !listOpen, model.banner == nil, !model.rows.isEmpty else {
+            hoverWork?.cancel()
+            hoverWork = nil
+            return
+        }
+        guard hoverWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.hoverWork = nil
+            let q = NSEvent.mouseLocation
+            guard !self.listOpen, self.model.banner == nil,
+                  IslandLayout.isInteractive(mode: self.model.mode, anchor: self.model.anchor, x: q.x, y: q.y)
+            else { return }
+            self.openPeek()
+        }
+        hoverWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.peekDelay, execute: work)
+    }
+
+    static let peekDelay = 0.3
+    /// Demo only: keep the strip out whatever the pointer does.
+    private var persistsPeek = false
+
+    private func openPeek() {
+        peekOpen = true
+        peekCollapseWork = nil
+        if !shouldStayQuiet() { feedback.tick() }
+        refreshMode()
+    }
+
+    private func closePeek() {
+        guard peekOpen, !persistsPeek else { return }
+        peekCollapseWork?.cancel()
+        peekCollapseWork = nil
+        peekOpen = false
+        model.peekHover = nil
+        refreshMode()
     }
 
     private func scheduleCollapse(after seconds: Double) {
@@ -337,6 +414,7 @@ final class IslandController {
 
     private func clickedElsewhere() {
         if listOpen { closeList() }
+        closePeek()
     }
 
     // MARK: Screens
@@ -488,6 +566,14 @@ final class IslandController {
             update(records: list, titles: [:])
             openList()
             collapseWork?.cancel()
+        case "peek", "peek-hover":
+            update(records: list + [fake("d4", .done, "Notch island", "\(home)/BackendProjects/NordvaNotch", ago: 300,
+                                         reply: "Done. Tests pass and the new build is installed.")], titles: [:])
+            dismissBanner()
+            openPeek()
+            peekCollapseWork?.cancel()
+            persistsPeek = true
+            if mode == "peek-hover" { model.peekHover = 1 }
         case "compact":
             update(records: list + [fake("d4", .done, "Notch island", "\(home)/BackendProjects/NordvaNotch", ago: 5)], titles: [:])
             dismissBanner()

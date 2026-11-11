@@ -99,6 +99,8 @@ public enum IslandMode: Equatable, Sendable {
     case compact(timer: Bool)
     /// One event, expanded for a few seconds.
     case banner
+    /// A strip of session pills while the pointer rests on the notch.
+    case peek(pills: Int)
     /// The full list, opened by a click; the timer row at the bottom only when the timer is on.
     case list(rows: Int, timer: Bool)
 }
@@ -117,6 +119,15 @@ public enum IslandLayout {
     /// Below the last row when there is no timer row; a little more than the padding,
     /// so a highlighted row stays clear of the round corners.
     public static let listEnd = 14.0
+    public static let peekWidth = 500.0
+    public static let peekBody = 62.0
+    public static let peekPadding = 16.0
+    public static let pillTop = 8.0
+    public static let pillHeight = 28.0
+    public static let pillSpacing = 6.0
+    public static let maxPillWidth = 160.0
+    /// Three pills keep about twenty characters of a title readable; the rest go into "+N more".
+    public static let maxPills = 3
     /// The panel is this big and never moves; only the shape inside it animates.
     public static let canvasWidth = 560.0
     public static let canvasHeight = 520.0
@@ -139,6 +150,8 @@ public enum IslandLayout {
             return Size(width: notch + wingWidth(timer: timer) * 2, height: anchor.height)
         case .banner:
             return Size(width: max(bannerWidth, notch + wing * 2), height: anchor.height + bannerBody)
+        case .peek:
+            return Size(width: max(peekWidth, notch + wing * 2), height: anchor.height + peekBody)
         case .list(let rows, let timer):
             let visible = Double(min(max(rows, 1), maxVisibleRows))
             let bottom = timer ? listFooter + listPadding : listEnd
@@ -151,6 +164,30 @@ public enum IslandLayout {
     public static func frame(of mode: IslandMode, anchor: NotchAnchor) -> Rect {
         let size = size(of: mode, anchor: anchor)
         return Rect(x: anchor.centerX - size.width / 2, y: anchor.top - size.height, width: size.width, height: size.height)
+    }
+
+    /// Pills share the strip equally, up to `maxPillWidth`, and the row is centred.
+    public static func pillWidth(count: Int, anchor: NotchAnchor) -> Double {
+        guard count > 0 else { return 0 }
+        let width = size(of: .peek(pills: count), anchor: anchor).width
+        let room = width - peekPadding * 2 - pillSpacing * Double(count - 1)
+        return min(maxPillWidth, room / Double(count))
+    }
+
+    /// Which pill is under the pointer, from coordinates alone: hover tracking in a panel that
+    /// never becomes key is not reliable, the pointer position is.
+    public static func pillIndex(x: Double, y: Double, count: Int, anchor: NotchAnchor) -> Int? {
+        guard count > 0 else { return nil }
+        let top = anchor.top - anchor.height - pillTop
+        guard y <= top, y > top - pillHeight else { return nil }
+        let pill = pillWidth(count: count, anchor: anchor)
+        let row = pill * Double(count) + pillSpacing * Double(count - 1)
+        let offset = x - (anchor.centerX - row / 2)
+        guard offset >= 0, offset < row else { return nil }
+        let index = Int(offset / (pill + pillSpacing))
+        // The gap between two pills belongs to neither.
+        guard offset - Double(index) * (pill + pillSpacing) < pill else { return nil }
+        return index
     }
 
     /// The fixed panel that hosts the shape.

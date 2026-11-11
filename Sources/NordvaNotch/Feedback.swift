@@ -11,6 +11,12 @@ final class Feedback {
         self.prefs = prefs
     }
 
+    /// The faintest click, for the peek strip.
+    func tick() {
+        guard !muted, prefs.haptics else { return }
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+    }
+
     func alert(taps: Int, sound: String?) {
         guard !muted else { return }
         if prefs.haptics {

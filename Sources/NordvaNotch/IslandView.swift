@@ -53,6 +53,7 @@ struct IslandView: View {
     private var radius: CGFloat {
         switch model.mode {
         case .idle, .compact: return 9
+        case .peek: return 20
         case .banner, .list: return 24
         }
     }
@@ -95,10 +96,109 @@ struct IslandView: View {
         case .banner:
             BannerView(model: model, actions: actions)
                 .transition(reveal)
+        case .peek:
+            PeekView(model: model, actions: actions)
+                .transition(reveal)
         case .list:
             ListView(model: model, actions: actions)
                 .transition(reveal)
         }
+    }
+}
+
+// MARK: - Peek
+
+/// The strip that slides out while the pointer rests on the notch: one pill per session.
+private struct PeekView: View {
+    @ObservedObject var model: IslandModel
+    let actions: IslandActions
+
+    private var pills: [SessionRow] { Array(model.rows.prefix(IslandLayout.maxPills)) }
+
+    var body: some View {
+        let width = IslandLayout.pillWidth(count: pills.count, anchor: model.anchor)
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: model.anchor.height)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: actions.openList)
+            Spacer().frame(height: IslandLayout.pillTop)
+            HStack(spacing: IslandLayout.pillSpacing) {
+                ForEach(Array(pills.enumerated()), id: \.element.id) { index, row in
+                    Pill(row: row, hovered: model.peekHover == index)
+                        .frame(width: width, height: IslandLayout.pillHeight)
+                        .contentShape(Capsule())
+                        .onTapGesture { actions.open(row) }
+                        .handCursor()
+                }
+            }
+            Text(detail)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(detailColor)
+                .lineLimit(1)
+                .padding(.horizontal, 20)
+                .padding(.top, 7)
+                .frame(maxWidth: .infinity)
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: actions.openList)
+    }
+
+    private var hovered: SessionRow? {
+        model.peekHover.flatMap { pills.indices.contains($0) ? pills[$0] : nil }
+    }
+
+    private var detail: String {
+        if let row = hovered {
+            if row.stalled { return "\(row.project) · No activity for a while" }
+            if row.status == .done, let reply = row.reply { return "\(row.project) · \(reply)" }
+            return "\(row.project) · \(row.statusText)"
+        }
+        var parts: [String] = []
+        let rows = model.rows
+        let working = rows.filter { $0.status == .working && !$0.stalled }.count
+        let waiting = rows.filter { $0.status == .waiting }.count
+        let done = rows.filter { $0.status == .done }.count
+        let failed = rows.filter { $0.status == .failed }.count
+        if waiting > 0 { parts.append("\(waiting) needs you") }
+        if working > 0 { parts.append("\(working) working") }
+        if done > 0 { parts.append("\(done) done") }
+        if failed > 0 { parts.append("\(failed) failed") }
+        let more = model.rows.count - pills.count + model.hiddenCount
+        if more > 0 { parts.append("+\(more) more") }
+        return parts.isEmpty ? "Click for all sessions" : parts.joined(separator: " · ")
+    }
+
+    private var detailColor: Color {
+        guard let row = hovered else { return Palette.secondary }
+        return row.stalled ? Palette.quiet : Palette.color(for: row.status)
+    }
+}
+
+private struct Pill: View {
+    let row: SessionRow
+    let hovered: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if row.status == .working && !row.stalled {
+                Spinner(color: NSColor(Palette.working), size: 9)
+                    .frame(width: 9, height: 9)
+            } else {
+                Circle()
+                    .fill(Palette.color(for: row.status, stalled: row.stalled))
+                    .frame(width: 7, height: 7)
+            }
+            Text(row.title)
+                .font(.system(size: 11, weight: row.unseen ? .bold : .semibold))
+                .foregroundStyle(row.unseen ? Color.white : Color.white.opacity(0.82))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Capsule().fill(Color.white.opacity(hovered ? 0.2 : 0.1)))
     }
 }
 

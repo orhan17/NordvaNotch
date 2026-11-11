@@ -174,6 +174,31 @@ import Testing
         #expect(six.height <= IslandLayout.canvasHeight)
     }
 
+    @Test func peekStripHangsFromTheNotchWithEqualPills() {
+        let a = NotchAnchor(screen: builtIn)
+        let strip = IslandLayout.frame(of: .peek(pills: 3), anchor: a)
+        #expect(strip.width == IslandLayout.peekWidth)
+        #expect(strip.height == 32 + IslandLayout.peekBody)
+        #expect(strip.maxY == 982)
+        #expect(IslandLayout.pillWidth(count: 1, anchor: a) == IslandLayout.maxPillWidth)
+        let three = IslandLayout.pillWidth(count: 3, anchor: a)
+        #expect(three * 3 + IslandLayout.pillSpacing * 2 == IslandLayout.peekWidth - IslandLayout.peekPadding * 2)
+        #expect(three > 140)
+    }
+
+    @Test func pillUnderThePointer() {
+        let a = NotchAnchor(screen: builtIn)
+        let y = 982 - 32 - IslandLayout.pillTop - IslandLayout.pillHeight / 2
+        let pill = IslandLayout.pillWidth(count: 2, anchor: a)
+        // Two pills centred on x 756: [756 - pill - 3, 756 - 3) and [756 + 3, 756 + pill + 3).
+        #expect(IslandLayout.pillIndex(x: 756 - pill, y: y, count: 2, anchor: a) == 0)
+        #expect(IslandLayout.pillIndex(x: 756 + 4, y: y, count: 2, anchor: a) == 1)
+        #expect(IslandLayout.pillIndex(x: 756, y: y, count: 2, anchor: a) == nil)
+        #expect(IslandLayout.pillIndex(x: 756 + pill + 10, y: y, count: 2, anchor: a) == nil)
+        #expect(IslandLayout.pillIndex(x: 756 + 4, y: 970, count: 2, anchor: a) == nil)
+        #expect(IslandLayout.pillIndex(x: 756, y: y, count: 0, anchor: a) == nil)
+    }
+
     @Test func idleNotchIsClickableButAnIdlePillIsNot() {
         let notch = NotchAnchor(screen: builtIn)
         #expect(IslandLayout.isInteractive(mode: .idle, anchor: notch, x: 756, y: 970))
