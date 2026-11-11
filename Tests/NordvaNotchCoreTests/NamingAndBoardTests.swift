@@ -125,6 +125,21 @@ import Testing
         #expect(IslandLayout.frame(of: .idle, anchor: a) == Rect(x: 663.5, y: 950, width: 185, height: 32))
     }
 
+    @Test func notchPositionDoesNotDependOnWhereTheAuxiliaryAreasAreMeasuredFrom() {
+        // The built-in display to the left of a main external one, auxiliary areas in local coordinates.
+        let left = ScreenShape(
+            frame: Rect(x: -1512, y: 98, width: 1512, height: 982),
+            safeAreaTop: 32,
+            auxiliaryTopLeft: Rect(x: 0, y: 950, width: 663.5, height: 32),
+            auxiliaryTopRight: Rect(x: 848.5, y: 950, width: 663.5, height: 32),
+            menuBarHeight: 0
+        )
+        let a = NotchAnchor(screen: left)
+        #expect(a.centerX == -1512 + 756)
+        #expect(a.notchWidth == 185)
+        #expect(a.top == 1080)
+    }
+
     @Test func screenWithoutANotchGetsAPillInTheMiddle() {
         let a = NotchAnchor(screen: dell)
         #expect(!a.hasNotch)

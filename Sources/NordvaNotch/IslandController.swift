@@ -75,6 +75,8 @@ final class IslandController {
     private var seen: [String: Double]
     private let launch = Date().timeIntervalSince1970
     private var listOpen = false
+    /// Something was held back during a call; keep the dot even if the compact wings are off.
+    private var quietPending = false
     private var bannerWork: DispatchWorkItem?
     private var collapseWork: DispatchWorkItem?
     private var homeWork: DispatchWorkItem?
@@ -95,6 +97,7 @@ final class IslandController {
         host.contextMenu = { [weak self] in self?.contextMenu?() ?? NSMenu() }
         panel.contentView = host
         if let screen = homeScreen() { place(on: screen) }
+        applyPreferences()
         panel.orderFrontRegardless()
 
         let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
@@ -119,7 +122,14 @@ final class IslandController {
 
     func applyPreferences() {
         model.showReply = prefs.showReply
+        // Screenshots, recordings and screen sharing leave out windows with sharingType .none.
+        panel.sharingType = prefs.hideFromScreenSharing ? .none : .readOnly
         refreshMode()
+    }
+
+    /// During a call nothing expands or clicks on its own; a dot waits instead.
+    private func shouldStayQuiet() -> Bool {
+        prefs.quietDuringCalls && CallMonitor.current().inCall
     }
 
     private var actions: IslandActions {
@@ -150,9 +160,13 @@ final class IslandController {
 
         let wanted = alerts.filter { $0.status == .waiting ? prefs.popOnWaiting : prefs.popOnDone }
         if let latest = wanted.last {
-            let urgent = wanted.contains { $0.status == .waiting }
-            feedback.alert(taps: urgent ? 2 : 1, sound: prefs.sessionSound ? "Tink" : nil)
-            show(.session(row(for: latest)))
+            if shouldStayQuiet() {
+                quietPending = true
+            } else {
+                let urgent = wanted.contains { $0.status == .waiting }
+                feedback.alert(taps: urgent ? 2 : 1, sound: prefs.sessionSound ? "Tink" : nil)
+                show(.session(row(for: latest)))
+            }
         }
         refreshMode()
     }
@@ -221,6 +235,8 @@ final class IslandController {
     func openList() {
         bannerWork?.cancel()
         model.banner = nil
+        quietPending = false
+        model.timerDone = false
         listOpen = true
         refreshMode()
         // Opened from the menu bar with the pointer far away: close on its own after a while.
@@ -240,8 +256,11 @@ final class IslandController {
         if prefs.placement == .pointer, let screen = pointerScreen() { place(on: screen) }
         model.banner = banner
         refreshMode()
-        let seconds = banner == .timer(minutes: model.timerMinutes) ? 20 : prefs.bannerSeconds
-        scheduleBannerHide(after: seconds)
+        if case .timer = banner {
+            scheduleBannerHide(after: 20)
+        } else {
+            scheduleBannerHide(after: prefs.bannerSeconds)
+        }
     }
 
     private func scheduleBannerHide(after seconds: Double) {
@@ -271,7 +290,7 @@ final class IslandController {
             mode = .list(rows: model.rows.count)
         } else if model.banner != nil {
             mode = .banner
-        } else if prefs.compactIndicators && (model.unseenCount > 0 || model.timerRunning) {
+        } else if (prefs.compactIndicators || quietPending) && (model.unseenCount > 0 || model.timerRunning || model.timerDone) {
             mode = .compact
         } else {
             mode = .idle
@@ -346,6 +365,7 @@ final class IslandController {
     func startTimer(minutes: Int) {
         model.timerMinutes = minutes
         model.timerEnd = Date().addingTimeInterval(Double(minutes) * 60)
+        model.timerDone = false
         if case .timer = model.banner { model.banner = nil }
         scheduleCountdown()
         refreshMode()
@@ -375,6 +395,12 @@ final class IslandController {
 
     private func timerFinished() {
         model.timerEnd = nil
+        if shouldStayQuiet() {
+            quietPending = true
+            model.timerDone = true
+            refreshMode()
+            return
+        }
         feedback.alert(taps: 2, sound: prefs.timerSound ? "Glass" : nil)
         if listOpen {
             collapseWork?.cancel()

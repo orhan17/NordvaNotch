@@ -42,7 +42,7 @@ public struct ScreenShape: Equatable, Sendable {
 
     public var hasNotch: Bool {
         guard safeAreaTop > 0, let left = auxiliaryTopLeft, let right = auxiliaryTopRight else { return false }
-        return right.minX - left.maxX > 0
+        return frame.width - left.width - right.width > 0
     }
 }
 
@@ -69,9 +69,11 @@ public struct NotchAnchor: Equatable, Sendable {
 
     public init(screen: ScreenShape) {
         if screen.hasNotch, let left = screen.auxiliaryTopLeft, let right = screen.auxiliaryTopRight {
-            let width = right.minX - left.maxX
+            // Widths only: they mean the same whatever the origin of the auxiliary areas is,
+            // even when the built-in display is not the one at (0, 0).
+            let width = screen.frame.width - left.width - right.width
             self.init(
-                centerX: left.maxX + width / 2,
+                centerX: screen.frame.minX + left.width + width / 2,
                 top: screen.frame.maxY,
                 notchWidth: width,
                 height: screen.safeAreaTop,
@@ -102,9 +104,9 @@ public enum IslandMode: Equatable, Sendable {
 
 public enum IslandLayout {
     public static let wing = 36.0
-    public static let bannerWidth = 420.0
-    public static let bannerBody = 78.0
-    public static let listWidth = 460.0
+    public static let bannerWidth = 440.0
+    public static let bannerBody = 64.0
+    public static let listWidth = 440.0
     public static let listHeader = 6.0
     public static let rowHeight = 50.0
     public static let maxVisibleRows = 6

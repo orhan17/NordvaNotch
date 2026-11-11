@@ -23,30 +23,22 @@ enum Palette {
     }
 }
 
-/// The notch outline: flat top that flares into the screen edge, straight sides, round bottom corners.
+/// The notch outline: square top against the screen edge, round bottom corners.
 struct NotchShape: Shape {
-    var ear: CGFloat
     var radius: CGFloat
 
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(ear, radius) }
-        set {
-            ear = newValue.first
-            radius = newValue.second
-        }
+    var animatableData: CGFloat {
+        get { radius }
+        set { radius = newValue }
     }
 
     func path(in rect: CGRect) -> Path {
-        let r = min(radius, (rect.width - ear * 2) / 2, rect.height / 2)
+        let r = max(0, min(radius, rect.width / 2, rect.height))
         var p = Path()
         p.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        p.addQuadCurve(to: CGPoint(x: rect.minX + ear, y: rect.minY + ear), control: CGPoint(x: rect.minX + ear, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.minX + ear, y: rect.maxY - r))
-        p.addQuadCurve(to: CGPoint(x: rect.minX + ear + r, y: rect.maxY), control: CGPoint(x: rect.minX + ear, y: rect.maxY))
-        p.addLine(to: CGPoint(x: rect.maxX - ear - r, y: rect.maxY))
-        p.addQuadCurve(to: CGPoint(x: rect.maxX - ear, y: rect.maxY - r), control: CGPoint(x: rect.maxX - ear, y: rect.maxY))
-        p.addLine(to: CGPoint(x: rect.maxX - ear, y: rect.minY + ear))
-        p.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY), control: CGPoint(x: rect.maxX - ear, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY), radius: r)
+        p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.minY), radius: r)
         p.closeSubpath()
         return p
     }
@@ -58,35 +50,32 @@ struct IslandView: View {
 
     private var size: IslandLayout.Size { IslandLayout.size(of: model.mode, anchor: model.anchor) }
     private var isIdle: Bool { model.mode == .idle }
-    private var isExpanded: Bool {
-        if case .list = model.mode { return true }
-        return model.mode == .banner
-    }
-
-    private var ear: CGFloat { isIdle ? 0 : 7 }
     private var radius: CGFloat {
         switch model.mode {
-        case .idle: return 10
-        case .compact: return 11
-        case .banner: return 22
-        case .list: return 26
+        case .idle, .compact: return 9
+        case .banner, .list: return 24
         }
+    }
+
+    /// The content grows out of the notch: fade in from 85% size, pinned to the top.
+    private var reveal: AnyTransition {
+        .opacity.combined(with: .scale(scale: 0.85, anchor: .top))
     }
 
     var body: some View {
         ZStack(alignment: .top) {
-            NotchShape(ear: ear, radius: radius)
+            NotchShape(radius: radius)
                 .fill(Color.black)
-                .frame(width: size.width + ear * 2, height: size.height)
-                .shadow(color: .black.opacity(isExpanded ? 0.5 : 0), radius: 16, y: 6)
-                .opacity(isIdle ? 0 : 1)
+                .frame(width: size.width, height: size.height)
+                // Behind the notch the idle shape is invisible anyway; without a notch there is nothing to show.
+                .opacity(isIdle && !model.anchor.hasNotch ? 0 : 1)
 
             content
                 .frame(width: size.width, height: size.height, alignment: .top)
-                .clipShape(NotchShape(ear: 0, radius: radius))
+                .clipShape(NotchShape(radius: radius))
         }
         .frame(width: IslandLayout.canvasWidth, height: IslandLayout.canvasHeight, alignment: .top)
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: model.mode)
+        .animation(.spring(response: 0.45, dampingFraction: 0.78), value: model.mode)
         .animation(.easeInOut(duration: 0.2), value: model.banner)
         .environment(\.colorScheme, .dark)
     }
@@ -94,7 +83,7 @@ struct IslandView: View {
     @ViewBuilder private var content: some View {
         switch model.mode {
         case .idle:
-            // Invisible, but a click on the notch still opens the list.
+            // A click on the notch opens the list.
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture(perform: actions.openList)
@@ -105,10 +94,10 @@ struct IslandView: View {
                 .transition(.opacity)
         case .banner:
             BannerView(model: model, actions: actions)
-                .transition(.opacity.animation(.easeIn(duration: 0.18).delay(0.1)))
+                .transition(reveal)
         case .list:
             ListView(model: model, actions: actions)
-                .transition(.opacity.animation(.easeIn(duration: 0.18).delay(0.1)))
+                .transition(reveal)
         }
     }
 }
@@ -129,11 +118,16 @@ private struct CompactView: View {
 
     @ViewBuilder private var left: some View {
         if let status = model.attention {
-            Circle().fill(Palette.color(for: status)).frame(width: 8, height: 8)
-                .shadow(color: Palette.color(for: status).opacity(0.8), radius: 4)
+            dot(Palette.color(for: status))
+        } else if model.timerDone {
+            dot(Palette.done)
         } else if model.timerRunning {
             Image(systemName: "timer").font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.waiting)
         }
+    }
+
+    private func dot(_ color: Color) -> some View {
+        Circle().fill(color).frame(width: 8, height: 8).shadow(color: color.opacity(0.8), radius: 4)
     }
 
     @ViewBuilder private var right: some View {
@@ -145,6 +139,8 @@ private struct CompactView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
+        } else if model.timerDone {
+            Image(systemName: "timer").font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.done)
         } else if model.unseenCount > 0 {
             Text("\(model.unseenCount)")
                 .font(.system(size: 12, weight: .bold).monospacedDigit())
@@ -161,74 +157,72 @@ private struct BannerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Band(model: model) {
-                Button(action: actions.openList) {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 26, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(HoverButtonStyle())
-                .help("All sessions")
-            }
+            // The strip beside the notch opens the whole list; the event below opens its session.
+            Color.clear
+                .frame(height: model.anchor.height)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: actions.openList)
             switch model.banner {
             case .session(let row):
-                sessionBody(row)
+                event(
+                    symbol: row.status == .working ? "ellipsis" : symbol(for: row),
+                    tint: Palette.color(for: row.status),
+                    title: row.title,
+                    detail: detail(for: row),
+                    trailing: trailing(for: row)
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { actions.open(row) }
+                .handCursor()
             case .timer(let minutes):
-                timerBody(minutes)
+                event(symbol: "timer", tint: Palette.done, title: "Time is up", detail: "\(minutes) min timer", trailing: TimeText.countdown(Double(minutes) * 60))
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: actions.dismissBanner)
+                    .handCursor()
             case nil:
                 Spacer()
             }
         }
     }
 
-    private func sessionBody(_ row: SessionRow) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            StatusBadge(status: row.status, waitReason: row.record.waitReason, stalled: false, size: 34)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(row.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text("\(row.project) · \(row.statusText)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Palette.color(for: row.status))
-                    .lineLimit(1)
-                if model.showReply, let reply = row.reply, row.status == .done {
-                    Text(reply)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Palette.secondary)
-                        .lineLimit(2)
-                }
+    private func event(symbol: String, tint: Color, title: String, detail: String, trailing: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 38, height: 38)
+                .background(tint.opacity(0.18), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                Text(detail).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            Text(trailing)
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(tint)
+                .lineLimit(1)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .contentShape(Rectangle())
-        .onTapGesture { actions.open(row) }
-        .handCursor()
+        .padding(.horizontal, 22)
+        .frame(width: IslandLayout.bannerWidth, height: IslandLayout.bannerBody)
     }
 
-    private func timerBody(_ minutes: Int) -> some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(Palette.waiting.opacity(0.18))
-                Image(systemName: "timer").font(.system(size: 16, weight: .bold)).foregroundStyle(Palette.waiting)
-            }
-            .frame(width: 34, height: 34)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Time is up").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                Text("\(minutes) min timer").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.secondary)
-            }
-            Spacer()
-            Chip(title: "Again") { actions.startTimer(minutes) }
-            Chip(title: "OK", action: actions.dismissBanner)
+    private func symbol(for row: SessionRow) -> String {
+        StatusBadge.symbol(status: row.status, waitReason: row.record.waitReason, stalled: false)
+    }
+
+    private func detail(for row: SessionRow) -> String {
+        if row.status == .done, model.showReply, let reply = row.reply { return "\(row.project) · \(reply)" }
+        return "\(row.project) · \(row.statusText)"
+    }
+
+    private func trailing(for row: SessionRow) -> String {
+        switch row.status {
+        case .done: return "Done"
+        case .waiting: return "Needs you"
+        case .failed: return "Failed"
+        case .working: return "Working"
+        case .idle: return ""
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 8)
-        .frame(maxHeight: .infinity, alignment: .top)
     }
 }
 
@@ -390,7 +384,7 @@ struct StatusBadge: View {
                     .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: spin)
                     .onAppear { spin = true }
             } else {
-                Image(systemName: symbol)
+                Image(systemName: Self.symbol(status: status, waitReason: waitReason, stalled: stalled))
                     .font(.system(size: size * 0.42, weight: .bold))
                     .foregroundStyle(color)
             }
@@ -398,7 +392,7 @@ struct StatusBadge: View {
         .frame(width: size, height: size)
     }
 
-    private var symbol: String {
+    static func symbol(status: SessionStatus, waitReason: WaitReason?, stalled: Bool) -> String {
         if stalled { return "pause.fill" }
         switch status {
         case .idle: return "moon.fill"

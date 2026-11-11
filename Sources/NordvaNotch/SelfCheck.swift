@@ -10,6 +10,9 @@ enum SelfCheck {
             print("screen \(screen.localizedName): \(Int(screen.frame.width))x\(Int(screen.frame.height)), \(kind), centre x \(anchor.centerX)")
         }
 
+        let call = CallMonitor.current()
+        print("camera in use: \(call.camera), microphone in use: \(call.microphone)")
+
         let helper = HookStatus.helperPath
         print("hook helper: \(helper) \(FileManager.default.isExecutableFile(atPath: helper) ? "ok" : "MISSING")")
         print("hooks in ~/.claude/settings.json: \(HookStatus.isInstalled ? "connected" : "not connected")")

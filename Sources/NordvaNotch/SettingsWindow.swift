@@ -97,6 +97,20 @@ private struct SettingsView: View {
                 Toggle("Dot and count next to the notch until you look", isOn: $prefs.compactIndicators)
             }
 
+            Section("Privacy") {
+                Toggle("Hide from screen sharing", isOn: $prefs.hideFromScreenSharing)
+                Text("Screenshots, screen recordings and shared screens leave the island out.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Quiet during calls", isOn: $prefs.quietDuringCalls)
+                Text("While a camera or microphone is in use, the island shows a dot instead of expanding and does not click the trackpad. Click it to see what happened.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TimelineView(.periodic(from: .now, by: 2)) { _ in
+                    LabeledContent("Right now") { Text(callText(CallMonitor.current())).foregroundStyle(.secondary) }
+                }
+            }
+
             Section("Feedback") {
                 Toggle("Haptic click on the trackpad", isOn: $prefs.haptics)
                 Toggle("Sound for sessions", isOn: $prefs.sessionSound)
@@ -121,6 +135,15 @@ private struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             hooksInstalled = HookStatus.isInstalled
             copied = false
+        }
+    }
+
+    private func callText(_ state: CallMonitor.State) -> String {
+        switch (state.camera, state.microphone) {
+        case (true, true): return "Camera and microphone in use"
+        case (true, false): return "Camera in use"
+        case (false, true): return "Microphone in use"
+        case (false, false): return "No call"
         }
     }
 
