@@ -108,10 +108,11 @@ private struct CompactView: View {
     @ObservedObject var model: IslandModel
 
     var body: some View {
+        let wing = IslandLayout.wingWidth(timer: model.timerRunning)
         HStack(spacing: 0) {
-            left.frame(width: IslandLayout.wing)
+            left.frame(width: wing)
             Spacer(minLength: model.anchor.notchWidth)
-            right.frame(width: IslandLayout.wing)
+            right.frame(width: wing)
         }
         .frame(height: model.anchor.height)
     }

@@ -153,9 +153,12 @@ import Testing
 
     @Test func shapesGrowDownFromTheTopEdge() {
         let a = NotchAnchor(screen: builtIn)
-        let compact = IslandLayout.frame(of: .compact, anchor: a)
+        let compact = IslandLayout.frame(of: .compact(timer: false), anchor: a)
         #expect(compact.width == 185 + IslandLayout.wing * 2)
         #expect(compact.maxY == 982)
+        let timer = IslandLayout.frame(of: .compact(timer: true), anchor: a)
+        #expect(timer.width == 185 + IslandLayout.timerWing * 2)
+        #expect(timer.midX == 756)
         let banner = IslandLayout.frame(of: .banner, anchor: a)
         #expect(banner.midX == 756)
         #expect(banner.maxY == 982)
@@ -174,7 +177,7 @@ import Testing
         #expect(!IslandLayout.isInteractive(mode: .idle, anchor: notch, x: 600, y: 970))
         let pill = NotchAnchor(screen: dell)
         #expect(!IslandLayout.isInteractive(mode: .idle, anchor: pill, x: 2472, y: 1070))
-        #expect(IslandLayout.isInteractive(mode: .compact, anchor: pill, x: 2472, y: 1070))
+        #expect(IslandLayout.isInteractive(mode: .compact(timer: false), anchor: pill, x: 2472, y: 1070))
     }
 }
 

@@ -94,8 +94,9 @@ public struct NotchAnchor: Equatable, Sendable {
 public enum IslandMode: Equatable, Sendable {
     /// Nothing to show: exactly the notch, or nothing at all on a screen without one.
     case idle
-    /// Small wings either side of the notch: a status dot and a count or a running timer.
-    case compact
+    /// Small wings either side of the notch: a status dot and a count, or a running timer,
+    /// which needs the wider wings so its digits keep clear of the edge.
+    case compact(timer: Bool)
     /// One event, expanded for a few seconds.
     case banner
     /// The full list, opened by a click.
@@ -104,6 +105,7 @@ public enum IslandMode: Equatable, Sendable {
 
 public enum IslandLayout {
     public static let wing = 36.0
+    public static let timerWing = 52.0
     public static let bannerWidth = 440.0
     public static let bannerBody = 64.0
     public static let listWidth = 440.0
@@ -116,6 +118,10 @@ public enum IslandLayout {
     public static let canvasWidth = 560.0
     public static let canvasHeight = 520.0
 
+    public static func wingWidth(timer: Bool) -> Double {
+        timer ? timerWing : wing
+    }
+
     public struct Size: Equatable, Sendable {
         public var width: Double
         public var height: Double
@@ -126,8 +132,8 @@ public enum IslandLayout {
         switch mode {
         case .idle:
             return Size(width: notch, height: anchor.height)
-        case .compact:
-            return Size(width: notch + wing * 2, height: anchor.height)
+        case .compact(let timer):
+            return Size(width: notch + wingWidth(timer: timer) * 2, height: anchor.height)
         case .banner:
             return Size(width: max(bannerWidth, notch + wing * 2), height: anchor.height + bannerBody)
         case .list(let rows):

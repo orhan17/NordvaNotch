@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         island.openSettings = { [weak self] in self?.openSettings() }
         island.contextMenu = { [weak self] in self?.makeMenu() ?? NSMenu() }
+        island.persistsTimer = demo == nil
         island.start()
         prefs.onChange = { [weak self] in self?.applyPreferences() }
         applyPreferences()

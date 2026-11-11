@@ -83,6 +83,8 @@ final class IslandController {
     private var countdown: Timer?
     private var monitors: [Any] = []
     private var observers: [NSObjectProtocol] = []
+    /// Off for demos and pictures, so a made-up timer never lands in the real defaults.
+    var persistsTimer = true
 
     init(prefs: Preferences, feedback: Feedback) {
         self.prefs = prefs
@@ -118,6 +120,7 @@ final class IslandController {
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.goHome() })
+        restoreTimer()
     }
 
     func applyPreferences() {
@@ -289,7 +292,7 @@ final class IslandController {
         } else if model.banner != nil {
             mode = .banner
         } else if (prefs.compactIndicators || quietPending) && (model.unseenCount > 0 || model.timerRunning || model.timerDone) {
-            mode = .compact
+            mode = .compact(timer: model.timerRunning)
         } else {
             mode = .idle
         }
@@ -378,6 +381,34 @@ final class IslandController {
     func stopTimer() {
         countdown?.invalidate()
         model.timerEnd = nil
+        saveTimer()
+        refreshMode()
+    }
+
+    /// A running timer survives a restart of the app, an update included.
+    private func saveTimer() {
+        guard persistsTimer else { return }
+        let defaults = UserDefaults.standard
+        if let end = model.timerEnd {
+            defaults.set(end.timeIntervalSince1970, forKey: "timerEnd")
+            defaults.set(model.timerMinutes, forKey: "timerMinutes")
+        } else {
+            defaults.removeObject(forKey: "timerEnd")
+            defaults.removeObject(forKey: "timerMinutes")
+        }
+    }
+
+    private func restoreTimer() {
+        guard persistsTimer else { return }
+        let defaults = UserDefaults.standard
+        let end = defaults.double(forKey: "timerEnd")
+        guard end > Date().timeIntervalSince1970 else {
+            defaults.removeObject(forKey: "timerEnd")
+            return
+        }
+        model.timerMinutes = defaults.integer(forKey: "timerMinutes")
+        model.timerEnd = Date(timeIntervalSince1970: end)
+        scheduleCountdown()
         refreshMode()
     }
 
@@ -385,6 +416,7 @@ final class IslandController {
 
     private func scheduleCountdown() {
         countdown?.invalidate()
+        saveTimer()
         guard let end = model.timerEnd else { return }
         let timer = Timer(fire: end, interval: 0, repeats: false) { [weak self] _ in self?.timerFinished() }
         RunLoop.main.add(timer, forMode: .common)
@@ -393,6 +425,7 @@ final class IslandController {
 
     private func timerFinished() {
         model.timerEnd = nil
+        saveTimer()
         if shouldStayQuiet() {
             quietPending = true
             model.timerDone = true
@@ -420,6 +453,7 @@ final class IslandController {
 
     /// Shows fake sessions without touching the real ones; used for screenshots.
     func demo(_ mode: String) {
+        persistsTimer = false
         let now = Date().timeIntervalSince1970 + 1
         func fake(_ id: String, _ status: SessionStatus, _ title: String, _ cwd: String, ago: Double, reply: String? = nil, wait: WaitReason? = nil, detail: String? = nil) -> SessionRecord {
             var r = SessionRecord(id: id, status: status, cwd: cwd, at: now - ago)
