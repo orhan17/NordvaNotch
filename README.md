@@ -29,15 +29,42 @@ When you run two or three Claude Code sessions at once (in the terminal or in th
 
 ## Install
 
-Build from source with the Xcode Command Line Tools:
+Works on macOS 13 or later, Apple Silicon or Intel.
+
+### The quick way: one command
+
+Open **Terminal** (press ⌘Space, type "Terminal"), paste this line and press Return:
+
+```bash
+curl -fsSL https://github.com/orhan17/NordvaNotch/releases/latest/download/NordvaNotch.zip -o /tmp/NordvaNotch.zip && { pkill -x NordvaNotch; sleep 1; rm -rf /Applications/NordvaNotch.app; ditto -x -k /tmp/NordvaNotch.zip /Applications && open /Applications/NordvaNotch.app; }
+```
+
+It downloads the latest release into Applications and opens it. Run the same line later to update.
+A download made in Terminal is not marked as coming from the internet, so macOS does not stop the
+app, or the hook helper inside it that Claude Code runs.
+
+### Or download it
+
+1. **Download** `NordvaNotch.dmg` from the [latest release](https://github.com/orhan17/NordvaNotch/releases/latest),
+   open it and **drag NordvaNotch into Applications**.
+2. The app is free and not notarized by Apple. Clear the download mark once, so macOS lets both the
+   app and its hook helper run:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/NordvaNotch.app
+   ```
+
+3. **Open NordvaNotch.**
+
+### Or build it
+
+With the Xcode Command Line Tools:
 
 ```bash
 git clone https://github.com/orhan17/NordvaNotch.git
 cd NordvaNotch
 ./build.sh --install
 ```
-
-This builds `NordvaNotch.app`, copies it to `/Applications` and launches it.
 
 ## Connect Claude Code
 
