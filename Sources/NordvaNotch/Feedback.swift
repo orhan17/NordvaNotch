@@ -1,0 +1,22 @@
+import AppKit
+
+/// Trackpad clicks and sounds. A haptic is only felt while a finger rests on the trackpad;
+/// the API gives no way to know, so a sound is the fallback for things that must not be missed.
+final class Feedback {
+    private let prefs: Preferences
+
+    init(prefs: Preferences) {
+        self.prefs = prefs
+    }
+
+    func alert(taps: Int, sound: String?) {
+        if prefs.haptics {
+            for index in 0..<max(1, taps) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.14 * Double(index)) {
+                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                }
+            }
+        }
+        if let sound { NSSound(named: NSSound.Name(sound))?.play() }
+    }
+}
