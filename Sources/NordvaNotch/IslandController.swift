@@ -136,8 +136,6 @@ final class IslandController {
         IslandActions(
             openList: { [weak self] in self?.openList() },
             open: { [weak self] row in self?.open(row) },
-            markAllSeen: { [weak self] in self?.markSeen(self?.model.rows.map(\.id) ?? []) },
-            clearFinished: {},
             startTimer: { [weak self] minutes in self?.startTimer(minutes: minutes) },
             addMinute: { [weak self] in self?.addMinute() },
             stopTimer: { [weak self] in self?.stopTimer() },
@@ -441,7 +439,7 @@ final class IslandController {
         default:
             update(records: list + [fake(
                 "d4", .done, "Notch island", "\(home)/BackendProjects/NordvaNotch", ago: -2,
-                reply: "Done. All 37 tests pass and the app is installed in /Applications."
+                reply: "Done. Tests pass and the new build is installed."
             )], titles: [:])
         }
     }

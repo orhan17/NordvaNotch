@@ -4,12 +4,15 @@ import AppKit
 /// the API gives no way to know, so a sound is the fallback for things that must not be missed.
 final class Feedback {
     private let prefs: Preferences
+    /// For off-screen rendering: no clicks, no sounds.
+    var muted = false
 
     init(prefs: Preferences) {
         self.prefs = prefs
     }
 
     func alert(taps: Int, sound: String?) {
+        guard !muted else { return }
         if prefs.haptics {
             for index in 0..<max(1, taps) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.14 * Double(index)) {
