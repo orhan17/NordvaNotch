@@ -61,6 +61,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
 
     /// The state machine. Pure, so the hook and the tests share it.
     public static func apply(_ event: HookEvent, to existing: SessionRecord?, at now: Double) -> Update {
+        // `claude -p` and Agent SDK apps (sdk-cli, sdk-ts, sdk-py) are scripts, not sessions anyone waits on.
+        if let entrypoint = event.entrypoint, entrypoint.hasPrefix("sdk-") { return .ignore }
         // Async hooks can finish out of order; an older event must not overwrite a newer state.
         if let existing, now < existing.updatedAt { return .ignore }
         // Subagents report with the parent's session id; their tool calls say nothing about the main turn.

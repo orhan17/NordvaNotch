@@ -136,6 +136,16 @@ private let sid = "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b"
         #expect(SessionRecord.apply(idle, to: done, at: 190) == .ignore)
     }
 
+    @Test func scriptsAndSDKAppsAreIgnored() {
+        let json = #"{"session_id":"\#(sid)","cwd":"/p","hook_event_name":"UserPromptSubmit","prompt":"hi"}"#
+        for entrypoint in ["sdk-cli", "sdk-ts", "sdk-py"] {
+            #expect(SessionRecord.apply(event(json, env: ["CLAUDE_CODE_ENTRYPOINT": entrypoint]), to: nil, at: 100) == .ignore)
+        }
+        for entrypoint in ["cli", "claude-desktop", "claude-vscode"] {
+            #expect(written(SessionRecord.apply(event(json, env: ["CLAUDE_CODE_ENTRYPOINT": entrypoint]), to: nil, at: 100)).status == .working)
+        }
+    }
+
     @Test func otherNotificationsAreIgnored() {
         let note = event(#"{"session_id":"\#(sid)","hook_event_name":"Notification","notification_type":"auth_success"}"#)
         #expect(SessionRecord.apply(note, to: start(), at: 110) == .ignore)
