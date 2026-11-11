@@ -94,9 +94,19 @@ public struct SessionRecord: Codable, Equatable, Sendable {
             }
             record.detail = nil
         case .permissionRequest:
+            // The desktop app routes its question and plan tools through the permission flow too.
             record.status = .waiting
-            record.waitReason = .permission
-            record.detail = event.toolName
+            switch event.toolName {
+            case "AskUserQuestion":
+                record.waitReason = .question
+                record.detail = nil
+            case "ExitPlanMode":
+                record.waitReason = .plan
+                record.detail = nil
+            default:
+                record.waitReason = .permission
+                record.detail = event.toolName
+            }
         case .postToolUse, .postToolUseFailure:
             // Every tool call lands here; rewrite the file only when something changes,
             // plus a heartbeat a minute so a long turn does not look stalled.
@@ -107,12 +117,11 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         case .notification:
             switch event.notificationType {
             case "permission_prompt":
-                // PermissionRequest usually got here first and knows the tool; keep that.
-                if record.status != .waiting || record.waitReason != .permission {
-                    record.detail = event.message.map { clip($0, to: promptLimit) }
-                }
+                // PermissionRequest or PreToolUse usually got here first and know more; keep that.
+                guard record.status != .waiting else { return .ignore }
                 record.status = .waiting
                 record.waitReason = .permission
+                record.detail = event.message.map { clip($0, to: promptLimit) }
             case "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input":
                 record.status = .waiting
                 record.waitReason = .input

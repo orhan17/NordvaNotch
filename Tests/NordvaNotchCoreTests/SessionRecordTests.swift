@@ -87,13 +87,25 @@ private let sid = "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b"
         #expect(resumed.statusSince == 120)
     }
 
-    @Test func permissionNotificationKeepsTheToolName() {
+    @Test func permissionNotificationDoesNotOverrideAKnownWait() {
         let ask = event(#"{"session_id":"\#(sid)","hook_event_name":"PermissionRequest","tool_name":"Edit"}"#)
         let waiting = written(SessionRecord.apply(ask, to: start(), at: 110))
         let note = event(#"{"session_id":"\#(sid)","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Edit"}"#)
-        let after = written(SessionRecord.apply(note, to: waiting, at: 116))
-        #expect(after.detail == "Edit")
+        #expect(SessionRecord.apply(note, to: waiting, at: 116) == .ignore)
+        let alone = written(SessionRecord.apply(note, to: start(), at: 116))
+        #expect(alone.waitReason == .permission)
+        #expect(alone.detail == "Claude needs your permission to use Edit")
+    }
+
+    @Test func desktopQuestionStaysAQuestionThroughItsPermissionRequest() {
+        // Seen live in the desktop app: PreToolUse(AskUserQuestion), then PermissionRequest for the same tool.
+        let pre = event(#"{"session_id":"\#(sid)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion"}"#)
+        let asked = written(SessionRecord.apply(pre, to: start(), at: 110))
+        let permission = event(#"{"session_id":"\#(sid)","hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion"}"#)
+        let after = written(SessionRecord.apply(permission, to: asked, at: 110.05))
+        #expect(after.waitReason == .question)
         #expect(after.statusSince == 110)
+        #expect(SessionNaming.statusText(of: after) == "Asks you a question")
     }
 
     @Test func toolCallsWhileWorkingDoNotRewriteTheFile() {
