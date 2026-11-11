@@ -12,6 +12,7 @@ When you run two or three Claude Code sessions at once (in the terminal or in th
 ## Features
 
 - **Session events.** Finished, failed, asks a question, waits for plan approval, needs permission. The island expands for a few seconds with the session title, the project and the start of the last reply, then folds into a small dot with a count until you look.
+- **Working sessions at a glance.** While any session works, a small spinner turns beside the notch with the number of working sessions. It is drawn by Core Animation, so it costs the app no redraws.
 - **Haptic click.** One click when a session finishes, two when it needs you. The trackpad only plays it while a finger rests on it.
 - **Session list.** Click the notch: sessions that need you first, then new results, then running ones. Click a row to jump to that session: the Claude desktop app opens it directly, a terminal session brings its terminal app forward.
 - **Real session names.** The title from the Claude desktop sidebar (or from `/rename` in the CLI), then the first prompt, then the folder. Claude worktrees show the repository name instead of the random worktree name.

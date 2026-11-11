@@ -34,6 +34,10 @@ final class IslandModel: ObservableObject {
     @Published var hovering = false
     @Published var timerEnd: Date?
     @Published var timerMinutes = 0
+    /// A spinner and a count next to the notch while sessions work.
+    @Published var showWorking = true
+    /// Dots for unseen results; off in Settings, but forced on after a call held something back.
+    @Published var showAttention = true
     /// The timer is optional and off by default: the island is about Claude Code first.
     @Published var timerEnabled = false
     /// A timer ended while the island had to stay quiet; cleared once the list is opened.

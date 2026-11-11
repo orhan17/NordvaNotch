@@ -94,6 +94,7 @@ private struct SettingsView: View {
                 LabeledContent("Keep an event open") {
                     Stepper("\(Int(prefs.bannerSeconds)) s", value: $prefs.bannerSeconds, in: 3...20, step: 1)
                 }
+                Toggle("Spinner next to the notch while sessions work", isOn: $prefs.showWorking)
                 Toggle("Dot and count next to the notch until you look", isOn: $prefs.compactIndicators)
             }
 

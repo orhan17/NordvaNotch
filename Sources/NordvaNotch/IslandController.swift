@@ -126,6 +126,7 @@ final class IslandController {
     func applyPreferences() {
         model.showReply = prefs.showReply
         model.timerEnabled = prefs.timerEnabled
+        model.showWorking = prefs.showWorking
         if !prefs.timerEnabled {
             if model.timerRunning { stopTimer() }
             model.timerDone = false
@@ -296,7 +297,7 @@ final class IslandController {
             mode = .list(rows: model.rows.count, timer: prefs.timerEnabled)
         } else if model.banner != nil {
             mode = .banner
-        } else if (prefs.compactIndicators || quietPending) && (model.unseenCount > 0 || model.timerRunning || model.timerDone) {
+        } else if compactWanted {
             mode = .compact(timer: model.timerRunning)
         } else {
             mode = .idle
@@ -304,6 +305,14 @@ final class IslandController {
         if model.mode != mode { model.mode = mode }
         if !listOpen && model.banner == nil { scheduleGoHome() }
         pointerMoved()
+    }
+
+    private var compactWanted: Bool {
+        let showAttention = prefs.compactIndicators || quietPending
+        if model.showAttention != showAttention { model.showAttention = showAttention }
+        let attention = showAttention && (model.unseenCount > 0 || model.timerRunning || model.timerDone)
+        let working = prefs.showWorking && model.workingCount > 0
+        return attention || working
     }
 
     // MARK: Pointer

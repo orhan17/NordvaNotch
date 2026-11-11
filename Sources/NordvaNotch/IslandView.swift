@@ -117,8 +117,15 @@ private struct CompactView: View {
         .frame(height: model.anchor.height)
     }
 
+    private var working: Bool { model.showWorking && model.workingCount > 0 }
+    private var attention: SessionStatus? { model.showAttention ? model.attention : nil }
+    private var unseen: Int { model.showAttention ? model.unseenCount : 0 }
+
     @ViewBuilder private var left: some View {
-        if let status = model.attention {
+        if working {
+            Spinner(color: NSColor(Palette.working), size: 12)
+                .frame(width: 12, height: 12)
+        } else if let status = attention {
             dot(Palette.color(for: status))
         } else if model.timerDone {
             dot(Palette.done)
@@ -127,8 +134,8 @@ private struct CompactView: View {
         }
     }
 
-    private func dot(_ color: Color) -> some View {
-        Circle().fill(color).frame(width: 8, height: 8).shadow(color: color.opacity(0.8), radius: 4)
+    private func dot(_ color: Color, size: CGFloat = 8) -> some View {
+        Circle().fill(color).frame(width: size, height: size).shadow(color: color.opacity(0.8), radius: 4)
     }
 
     @ViewBuilder private var right: some View {
@@ -140,12 +147,20 @@ private struct CompactView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
+        } else if unseen > 0 {
+            HStack(spacing: 4) {
+                // The spinner holds the left wing, so the result's colour moves here.
+                if working, let status = attention { dot(Palette.color(for: status), size: 6) }
+                Text("\(unseen)")
+                    .font(.system(size: 12, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+            }
         } else if model.timerDone {
             Image(systemName: "timer").font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.done)
-        } else if model.unseenCount > 0 {
-            Text("\(model.unseenCount)")
+        } else if working {
+            Text("\(model.workingCount)")
                 .font(.system(size: 12, weight: .bold).monospacedDigit())
-                .foregroundStyle(.white)
+                .foregroundStyle(Palette.working)
         }
     }
 }
@@ -463,4 +478,49 @@ extension View {
             self
         }
     }
+}
+
+/// A spinning arc driven by Core Animation: the window server turns it, so a spinner that may stay
+/// on screen for hours costs the app no redraws.
+struct Spinner: NSViewRepresentable {
+    let color: NSColor
+    let size: CGFloat
+
+    func makeNSView(context: Context) -> SpinnerView {
+        SpinnerView(color: color, size: size)
+    }
+
+    func updateNSView(_ view: SpinnerView, context: Context) {
+        view.arc.strokeColor = color.cgColor
+    }
+}
+
+final class SpinnerView: NSView {
+    let arc = CAShapeLayer()
+    private let side: CGFloat
+
+    init(color: NSColor, size: CGFloat) {
+        side = size
+        super.init(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        wantsLayer = true
+        arc.frame = bounds
+        arc.path = CGPath(ellipseIn: bounds.insetBy(dx: 1.2, dy: 1.2), transform: nil)
+        arc.fillColor = nil
+        arc.strokeColor = color.cgColor
+        arc.lineWidth = 2
+        arc.lineCap = .round
+        arc.strokeEnd = 0.7
+        layer?.addSublayer(arc)
+
+        let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+        spin.fromValue = 0
+        spin.toValue = -2 * Double.pi
+        spin.duration = 1
+        spin.repeatCount = .infinity
+        arc.add(spin, forKey: "spin")
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: side, height: side) }
 }

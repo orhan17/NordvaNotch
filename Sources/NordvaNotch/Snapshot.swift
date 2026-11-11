@@ -9,7 +9,7 @@ enum Snapshot {
     static func write(to directory: String) -> Int32 {
         let prefs = Preferences()
         var failed = false
-        for mode in ["banner", "list", "compact"] {
+        for mode in ["banner", "list"] {
             let feedback = Feedback(prefs: prefs)
             feedback.muted = true
             let island = IslandController(prefs: prefs, feedback: feedback)

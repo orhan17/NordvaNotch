@@ -30,6 +30,7 @@ final class Preferences: ObservableObject {
     @Published var hideFromScreenSharing: Bool { didSet { save(hideFromScreenSharing, "hideFromScreenSharing") } }
     @Published var quietDuringCalls: Bool { didSet { save(quietDuringCalls, "quietDuringCalls") } }
     @Published var timerEnabled: Bool { didSet { save(timerEnabled, "timerEnabled") } }
+    @Published var showWorking: Bool { didSet { save(showWorking, "showWorking") } }
 
     init() {
         defaults.register(defaults: [
@@ -46,6 +47,7 @@ final class Preferences: ObservableObject {
             "hideFromScreenSharing": true,
             "quietDuringCalls": true,
             "timerEnabled": false,
+            "showWorking": true,
         ])
         placement = Placement(rawValue: defaults.string(forKey: "placement") ?? "") ?? .notch
         popOnDone = defaults.bool(forKey: "popOnDone")
@@ -60,6 +62,7 @@ final class Preferences: ObservableObject {
         hideFromScreenSharing = defaults.bool(forKey: "hideFromScreenSharing")
         quietDuringCalls = defaults.bool(forKey: "quietDuringCalls")
         timerEnabled = defaults.bool(forKey: "timerEnabled")
+        showWorking = defaults.bool(forKey: "showWorking")
     }
 
     /// Seen marks survive restarts, otherwise every finished session would light up again.
