@@ -100,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             timerMenu.addItem(item)
         }
         timer.submenu = timerMenu
-        menu.addItem(timer)
+        if prefs.timerEnabled || island.timerEnd != nil { menu.addItem(timer) }
 
         let clear = NSMenuItem(title: "Clear Finished Sessions", action: #selector(clearFinished), keyEquivalent: "")
         clear.target = self

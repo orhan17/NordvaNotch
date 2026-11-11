@@ -114,7 +114,15 @@ private struct SettingsView: View {
             Section("Feedback") {
                 Toggle("Haptic click on the trackpad", isOn: $prefs.haptics)
                 Toggle("Sound for sessions", isOn: $prefs.sessionSound)
+            }
+
+            Section("Timer") {
+                Toggle("Timer", isOn: $prefs.timerEnabled)
+                Text("5 to 45 minute countdowns from the session list and the menu bar. Off keeps the island about Claude Code only.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("Sound when a timer ends", isOn: $prefs.timerSound)
+                    .disabled(!prefs.timerEnabled)
             }
 
             Section("General") {

@@ -125,6 +125,11 @@ final class IslandController {
 
     func applyPreferences() {
         model.showReply = prefs.showReply
+        model.timerEnabled = prefs.timerEnabled
+        if !prefs.timerEnabled {
+            if model.timerRunning { stopTimer() }
+            model.timerDone = false
+        }
         // Screenshots, recordings and screen sharing leave out windows with sharingType .none.
         panel.sharingType = prefs.hideFromScreenSharing ? .none : .readOnly
         refreshMode()
@@ -288,7 +293,7 @@ final class IslandController {
     private func refreshMode() {
         let mode: IslandMode
         if listOpen {
-            mode = .list(rows: model.rows.count)
+            mode = .list(rows: model.rows.count, timer: prefs.timerEnabled)
         } else if model.banner != nil {
             mode = .banner
         } else if (prefs.compactIndicators || quietPending) && (model.unseenCount > 0 || model.timerRunning || model.timerDone) {
@@ -399,7 +404,7 @@ final class IslandController {
     }
 
     private func restoreTimer() {
-        guard persistsTimer else { return }
+        guard persistsTimer, prefs.timerEnabled else { return }
         let defaults = UserDefaults.standard
         let end = defaults.double(forKey: "timerEnd")
         guard end > Date().timeIntervalSince1970 else {

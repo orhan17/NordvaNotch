@@ -99,8 +99,8 @@ public enum IslandMode: Equatable, Sendable {
     case compact(timer: Bool)
     /// One event, expanded for a few seconds.
     case banner
-    /// The full list, opened by a click.
-    case list(rows: Int)
+    /// The full list, opened by a click; the timer row at the bottom only when the timer is on.
+    case list(rows: Int, timer: Bool)
 }
 
 public enum IslandLayout {
@@ -114,6 +114,9 @@ public enum IslandLayout {
     public static let maxVisibleRows = 6
     public static let listFooter = 52.0
     public static let listPadding = 10.0
+    /// Below the last row when there is no timer row; a little more than the padding,
+    /// so a highlighted row stays clear of the round corners.
+    public static let listEnd = 14.0
     /// The panel is this big and never moves; only the shape inside it animates.
     public static let canvasWidth = 560.0
     public static let canvasHeight = 520.0
@@ -136,9 +139,10 @@ public enum IslandLayout {
             return Size(width: notch + wingWidth(timer: timer) * 2, height: anchor.height)
         case .banner:
             return Size(width: max(bannerWidth, notch + wing * 2), height: anchor.height + bannerBody)
-        case .list(let rows):
+        case .list(let rows, let timer):
             let visible = Double(min(max(rows, 1), maxVisibleRows))
-            let body = listHeader + visible * rowHeight + listFooter + listPadding * 2
+            let bottom = timer ? listFooter + listPadding : listEnd
+            let body = listHeader + listPadding + visible * rowHeight + bottom
             return Size(width: max(listWidth, notch + wing * 2), height: anchor.height + body)
         }
     }

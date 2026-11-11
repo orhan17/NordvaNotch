@@ -261,6 +261,14 @@ private struct ListView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(Palette.secondary)
                 }
+                Button(action: actions.openSettings) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 12))
+                        .frame(width: 28, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(HoverButtonStyle())
+                .help("Settings")
             }
             Spacer().frame(height: IslandLayout.listHeader + IslandLayout.listPadding)
             if model.rows.isEmpty {
@@ -278,10 +286,14 @@ private struct ListView: View {
                 }
                 .padding(.horizontal, 8)
             }
-            footer
-                .frame(height: IslandLayout.listFooter)
-                .padding(.horizontal, 16)
-            Spacer().frame(height: IslandLayout.listPadding)
+            if model.timerEnabled {
+                footer
+                    .frame(height: IslandLayout.listFooter)
+                    .padding(.horizontal, 16)
+                Spacer().frame(height: IslandLayout.listPadding)
+            } else {
+                Spacer().frame(height: IslandLayout.listEnd)
+            }
         }
     }
 
@@ -305,14 +317,6 @@ private struct ListView: View {
                 }
             }
             Spacer(minLength: 4)
-            Button(action: actions.openSettings) {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 13))
-                    .frame(width: 30, height: 26)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(HoverButtonStyle())
-            .help("Settings")
         }
     }
 }

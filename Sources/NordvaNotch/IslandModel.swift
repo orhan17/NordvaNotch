@@ -34,6 +34,8 @@ final class IslandModel: ObservableObject {
     @Published var hovering = false
     @Published var timerEnd: Date?
     @Published var timerMinutes = 0
+    /// The timer is optional and off by default: the island is about Claude Code first.
+    @Published var timerEnabled = false
     /// A timer ended while the island had to stay quiet; cleared once the list is opened.
     @Published var timerDone = false
 

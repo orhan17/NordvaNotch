@@ -15,7 +15,7 @@ When you run two or three Claude Code sessions at once (in the terminal or in th
 - **Haptic click.** One click when a session finishes, two when it needs you. The trackpad only plays it while a finger rests on it.
 - **Session list.** Click the notch: sessions that need you first, then new results, then running ones. Click a row to jump to that session: the Claude desktop app opens it directly, a terminal session brings its terminal app forward.
 - **Real session names.** The title from the Claude desktop sidebar (or from `/rename` in the CLI), then the first prompt, then the folder. Claude worktrees show the repository name instead of the random worktree name.
-- **Timer.** 5 to 45 minutes from the list or the menu bar. The countdown sits next to the notch, the end expands the island with a click and a sound.
+- **Optional timer**, off by default (Settings → Timer). 5 to 45 minutes from the list or the menu bar; the countdown sits next to the notch, the end expands the island with a click and a sound.
 - **Quiet during calls.** While a camera or a microphone is in use, nothing expands, clicks or plays a sound on its own. A dot waits instead.
 - **Hidden from screen sharing.** Screenshots, recordings and shared screens leave the island out (on by default).
 - **No notch, no problem.** With the lid closed or on an external display, the island hangs from the middle of the top edge. Events can also follow the display with the pointer.
