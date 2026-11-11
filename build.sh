@@ -13,11 +13,16 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 if [[ "$mode" == "--release" ]]; then
+    triples=(arm64-apple-macosx13.0 x86_64-apple-macosx13.0)
+    # One scratch folder per triple: a shared .build keeps one cached build plan, and switching
+    # triples in it fails with "command ... not registered".
+    for triple in "${triples[@]}"; do
+        swift build -c release --triple "$triple" --scratch-path ".build/universal/$triple"
+    done
     for product in "${products[@]}"; do
         slices=()
-        for triple in arm64-apple-macosx13.0 x86_64-apple-macosx13.0; do
-            swift build -c release --triple "$triple" --product "$product"
-            slices+=("$(swift build -c release --triple "$triple" --show-bin-path)/$product")
+        for triple in "${triples[@]}"; do
+            slices+=("$(swift build -c release --triple "$triple" --scratch-path ".build/universal/$triple" --show-bin-path)/$product")
         done
         lipo -create -output "$app/Contents/MacOS/$product" "${slices[@]}"
     done
@@ -33,7 +38,7 @@ cp Resources/AppIcon.icns "$app/Contents/Resources/"
 
 # An ad-hoc signature's requirement is its cdhash, so every rebuild would look like a new app
 # to macOS (login item, notifications). Pinning the requirement to the bundle id keeps them.
-codesign --force --sign - -r '=designated => identifier "io.github.orhan17.NordvaNotch.hook"' "$app/Contents/MacOS/notch-hook"
+codesign --force --sign - -i io.github.orhan17.NordvaNotch.hook -r '=designated => identifier "io.github.orhan17.NordvaNotch.hook"' "$app/Contents/MacOS/notch-hook"
 codesign --force --sign - -r '=designated => identifier "io.github.orhan17.NordvaNotch"' "$app"
 echo "built: $app"
 
