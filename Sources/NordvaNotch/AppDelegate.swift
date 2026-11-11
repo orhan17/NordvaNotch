@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var island = IslandController(prefs: prefs, feedback: feedback)
     private let monitor = SessionMonitor(store: SessionStore(directory: SessionStore.defaultDirectory))
     private var statusItem: NSStatusItem?
-    private lazy var settingsWindow = SettingsWindowController(prefs: prefs, preview: { [weak self] in self?.island.demo("banner") })
+    private lazy var settingsWindow = SettingsWindowController(prefs: prefs, preview: { [weak self] in self?.island.preview() })
 
     init(demo: String?) {
         self.demo = demo

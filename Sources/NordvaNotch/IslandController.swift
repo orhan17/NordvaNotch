@@ -407,6 +407,15 @@ final class IslandController {
         show(.timer(minutes: model.timerMinutes))
     }
 
+    /// Settings → Preview: one made-up banner. Leaves the real sessions and seen marks alone.
+    func preview() {
+        var record = SessionRecord(id: "preview", status: .done, cwd: NSHomeDirectory() + "/Projects/NordvaNotch", at: Date().timeIntervalSince1970)
+        record.title = "Notch island"
+        record.reply = "Done. Tests pass and the new build is installed."
+        feedback.alert(taps: 1, sound: prefs.sessionSound ? "Tink" : nil)
+        show(.session(row(for: record)))
+    }
+
     // MARK: Demo
 
     /// Shows fake sessions without touching the real ones; used for screenshots.
