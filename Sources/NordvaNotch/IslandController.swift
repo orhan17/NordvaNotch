@@ -185,6 +185,7 @@ final class IslandController {
         IslandActions(
             openList: { [weak self] in self?.openList() },
             open: { [weak self] row in self?.open(row) },
+            remove: { [weak self] row in self?.remove(row) },
             startTimer: { [weak self] minutes in self?.startTimer(minutes: minutes) },
             addMinute: { [weak self] in self?.addMinute() },
             stopTimer: { [weak self] in self?.stopTimer() },
@@ -291,7 +292,8 @@ final class IslandController {
     private func refreshRows() {
         let now = Date().timeIntervalSince1970
         let ordered = SessionBoard.ordered(records, seen: seen, now: now)
-        let rows = ordered.prefix(IslandLayout.maxVisibleRows).map(row(for:))
+        // Six rows show at a time; more scroll. Fifty is plenty and keeps the list cheap.
+        let rows = ordered.prefix(50).map(row(for:))
         // @Published announces every assignment, equal or not, and each one costs SwiftUI a full
         // layout pass; this runs every 15 seconds, so only real changes are written.
         set(\.rows, rows)
@@ -374,10 +376,27 @@ final class IslandController {
             model.selectedRow = max(0, (model.selectedRow ?? count) - 1)
         case kVK_Return, kVK_ANSI_KeypadEnter:
             if let index = model.selectedRow, model.rows.indices.contains(index) { open(model.rows[index]) }
+        case kVK_Delete, kVK_ForwardDelete:
+            if let index = model.selectedRow, model.rows.indices.contains(index) { remove(model.rows[index]) }
         default:
             return false
         }
         return true
+    }
+
+    /// Deletes the session's record; the next hook event of that session brings it back.
+    var removeSessions: ([String]) -> Void = { _ in }
+
+    func remove(_ row: SessionRow) {
+        removeSessions([row.id])
+        records.removeAll { $0.id == row.id }
+        seen[row.id] = nil
+        prefs.seen = seen
+        refreshRows()
+        if let index = model.selectedRow {
+            model.selectedRow = model.rows.isEmpty ? nil : min(index, model.rows.count - 1)
+        }
+        refreshMode()
     }
 
     func openList() {
@@ -877,6 +896,15 @@ final class IslandController {
                 collapseWork?.cancel()
             }
             bannerWork?.cancel()
+        case "many", "many-scrolled":
+            let names = ["Booking API: pagination", "Fix flaky crawler test", "RAG service: reranker", "Notch island",
+                         "Spin admin hints", "Zipcode API comma", "Deckbell import", "Domain for Nordva", "Instagram page"]
+            let many = names.enumerated().map { index, name in
+                fake("m\(index)", index == 0 ? .working : .done, name, "\(home)/Projects/p\(index)", ago: Double(60 * (index + 1)))
+            }
+            update(records: many, titles: [:])
+            toggleListFromKeyboard()
+            if mode == "many-scrolled" { model.selectedRow = 7 }
         case "peek", "peek-hover":
             update(records: list + [fake("d4", .done, "Notch island", "\(home)/BackendProjects/NordvaNotch", ago: 300,
                                          reply: "Done. Tests pass and the new build is installed.")], titles: [:])

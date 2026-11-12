@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         island.openSettings = { [weak self] in self?.openSettings() }
+        island.removeSessions = { [weak self] ids in self?.monitor.remove(ids: ids) }
         island.contextMenu = { [weak self] in self?.makeMenu() ?? NSMenu() }
         island.persistsTimer = demo == nil
         island.start()

@@ -136,7 +136,7 @@ private struct SettingsView: View {
                 Picker("Open the list with", selection: $prefs.shortcut) {
                     ForEach(HotKey.Shortcut.allCases) { Text($0.title).tag($0) }
                 }
-                Text("Arrows pick a session, Return opens it, Escape closes the list.")
+                Text("Arrows pick a session, Return opens it, Delete removes it from the notch, Escape closes the list.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Toggle("Spinner next to the notch while sessions work", isOn: $prefs.showWorking)

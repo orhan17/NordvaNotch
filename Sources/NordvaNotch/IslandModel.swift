@@ -96,6 +96,7 @@ final class IslandModel: ObservableObject {
 struct IslandActions {
     var openList: () -> Void = {}
     var open: (SessionRow) -> Void = { _ in }
+    var remove: (SessionRow) -> Void = { _ in }
     var startTimer: (Int) -> Void = { _ in }
     var addMinute: () -> Void = {}
     var stopTimer: () -> Void = {}

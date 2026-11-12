@@ -472,14 +472,29 @@ private struct ListView: View {
                 }
                 .frame(height: IslandLayout.rowHeight)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(model.rows) { row in
-                        RowView(row: row, warnPercent: model.contextWarnPercent,
-                                selected: model.selectedRow == model.rows.firstIndex(of: row)) { actions.open(row) }
-                            .frame(height: IslandLayout.rowHeight)
+                // Six rows show; the rest scroll, and a row picked with the arrows scrolls into view.
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: model.rows.count > IslandLayout.maxVisibleRows) {
+                        VStack(spacing: 0) {
+                            ForEach(Array(model.rows.enumerated()), id: \.element.id) { index, row in
+                                RowView(
+                                    row: row, warnPercent: model.contextWarnPercent,
+                                    selected: model.selectedRow == index,
+                                    remove: { actions.remove(row) },
+                                    action: { actions.open(row) }
+                                )
+                                .frame(height: IslandLayout.rowHeight)
+                                .id(row.id)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                    }
+                    .frame(height: Double(min(model.rows.count, IslandLayout.maxVisibleRows)) * IslandLayout.rowHeight)
+                    .onChange(of: model.selectedRow) { index in
+                        guard let index, model.rows.indices.contains(index) else { return }
+                        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(model.rows[index].id) }
                     }
                 }
-                .padding(.horizontal, 8)
             }
             if model.timerEnabled {
                 footer
@@ -520,6 +535,7 @@ private struct RowView: View {
     let row: SessionRow
     let warnPercent: Int
     var selected = false
+    let remove: () -> Void
     let action: () -> Void
     @State private var hover = false
 
@@ -556,8 +572,17 @@ private struct RowView: View {
                         .foregroundStyle(Palette.secondary)
                 }
             }
+            Button(action: remove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(HoverButtonStyle())
+            .help("Remove from the notch; it comes back when the session does something")
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
         .frame(maxHeight: .infinity)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hover || selected ? Palette.hover : .clear))
         .contentShape(Rectangle())

@@ -19,7 +19,8 @@ When you run two or three Claude Code sessions at once (in the terminal or in th
 - **Context fill.** Each session shows how full its context is, against `autoCompactWindow` from Claude Code's settings or the model's own window, and warns at 85% that compaction is near.
 - **Agents after the turn.** When a turn ends while its subagents or workflows still run, the session says "Finished · 2 agents still running" and the spinner keeps turning until they report back.
 - **Limit reset.** When a five-hour window that got past 70% resets, the island says so: time to carry on.
-- **Shortcut.** ⌥⌘L opens the list; arrows pick a session, Return opens it, Escape closes (changeable in Settings).
+- **Shortcut.** ⌥⌘L opens the list; arrows pick a session, Return opens it, Delete removes it, Escape closes (changeable in Settings).
+- **Tidy list.** Six sessions show at a time and the rest scroll. The × on a row removes that session from the notch until it does something again.
 - **Haptic click.** One click when a session finishes, two when it needs you. The trackpad only plays it while a finger rests on it.
 - **Peek.** Rest the pointer on the notch for a moment and a strip slides out with up to three sessions as pills, each with its status. Point at a pill to read its status or the start of the last reply, click it to jump to that session. A pointer that only passes the notch on its way to the menu bar does not open it.
 - **Session list.** Click the notch: sessions that need you first, then new results, then running ones. Click a row to jump to that session: the Claude desktop app opens it directly, a terminal session brings its terminal app forward.
