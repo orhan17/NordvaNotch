@@ -188,11 +188,17 @@ private let sid = "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b"
           {"id":"s1","type":"auto-mode scan","status":"running","description":"scan"},
           {"id":"m1","type":"memory import","status":"pending","description":"import"},
           {"id":"t1","type":"shell","status":"completed","description":"build","command":"swift build"},
+          {"id":"w1","type":"monitor","status":"running","description":"live updates for artifact abc (watch)"},
+          {"id":"w2","type":"monitor","status":"running","description":"presence on artifact https://claude.ai/artifact/abc"},
           {"id":"t2","type":"monitor","status":"pending","description":"watch","server":"s","tool":"t"}]}
         """#)
         let done = written(SessionRecord.apply(stop, to: start(), at: 130))
         #expect(done.backgroundAgents == 0)
         #expect(done.backgroundCommands == 1)
+        #expect(done.backgroundTasks == ["monitor: watch"])
+
+        let back = event(#"{"session_id":"\#(sid)","hook_event_name":"UserPromptSubmit","prompt":"next"}"#)
+        #expect(written(SessionRecord.apply(back, to: done, at: 140)).backgroundTasks == nil)
 
         let upkeep = event(#"""
         {"session_id":"\#(sid)","hook_event_name":"Stop","background_tasks":[

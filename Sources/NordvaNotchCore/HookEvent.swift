@@ -31,6 +31,8 @@ public struct HookEvent: Sendable {
     public var agentID: String?
     /// From Stop: work still running after the turn ended, as (agents, commands).
     public var background: (agents: Int, commands: Int)?
+    /// What was counted in `background`, as "type: description".
+    public var backgroundNames: [String] = []
     public var entrypoint: String?
     public var hostSessionID: String?
     public var hostBundleID: String?
@@ -68,17 +70,23 @@ public struct HookEvent: Sendable {
         event.error = text("error") ?? text("error_message") ?? text("error_type")
         event.agentID = text("agent_id")
         if let tasks = payload["background_tasks"] as? [[String: Any]] {
-            // Only work that reports back to the session counts. Claude Code's own upkeep (memory
-            // consolidation, auto-mode scans, memory imports) is listed too, but it never wakes the
-            // session, so counting it would leave "still running" up after it is long gone.
-            let agentTypes: Set<String> = ["subagent", "workflow", "teammate", "cloud session"]
-            let commandTypes: Set<String> = ["shell", "monitor", "mcp task", "code"]
             var agents = 0, commands = 0
             for task in tasks {
                 let status = (task["status"] as? String ?? "running").lowercased()
                 guard status == "running" || status == "pending" else { continue }
                 let type = (task["type"] as? String ?? "").lowercased()
-                if agentTypes.contains(type) { agents += 1 } else if commandTypes.contains(type) { commands += 1 }
+                let description = task["description"] as? String ?? ""
+                if agentTypes.contains(type) {
+                    agents += 1
+                } else if commandTypes.contains(type), !(type == "monitor" && isAmbient(description)) {
+                    commands += 1
+                } else {
+                    continue
+                }
+                if event.backgroundNames.count < 5 {
+                    let name = description.isEmpty ? type : "\(type): \(description)"
+                    event.backgroundNames.append(name.count > 80 ? String(name.prefix(79)) + "…" : name)
+                }
             }
             event.background = (agents, commands)
         }
@@ -86,6 +94,17 @@ public struct HookEvent: Sendable {
         event.hostSessionID = environment["CLAUDE_CODE_HOST_SESSION_ID"].flatMap { $0.isEmpty ? nil : $0 }
         event.hostBundleID = environment["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
         return event
+    }
+
+    // Only work that reports back to the session counts as still running. Claude Code also lists
+    // its own upkeep (memory consolidation, auto-mode scans, memory imports) and, while a session
+    // watches an artifact, a monitor that lives as long as the session. None of them wakes the
+    // session when done, so counting them would leave "still running" up for good.
+    static let agentTypes: Set<String> = ["subagent", "workflow", "teammate", "cloud session"]
+    static let commandTypes: Set<String> = ["shell", "monitor", "mcp task", "code"]
+
+    static func isAmbient(_ description: String) -> Bool {
+        description.hasPrefix("live updates for artifact ") || description.hasPrefix("presence on artifact ")
     }
 
     /// The id becomes a file name, so anything that could escape the sessions folder is rejected.

@@ -59,6 +59,9 @@ enum SelfCheck {
                 }
                 print(line)
             }
+            for task in record.backgroundTasks ?? [] {
+                print("    still running: \(task)")
+            }
         }
         return FileManager.default.isExecutableFile(atPath: helper) ? 0 : 1
     }
