@@ -75,8 +75,11 @@ final class IslandController {
     private var announced: [String: Double] = [:]
     private var usage: [String: TurnUsage] = [:]
     private var snapshot = UsageSnapshot()
+    /// Percent of the plan's five hours per dollar at API prices, from the last good reading.
+    private var perDollar: Double?
     /// Armed again once the window falls back under 80% of the limit.
     private var windowWarned = false
+    private var windowWarnedFor: Double?
     /// Armed again once the context falls 15 points under the limit, after a compaction.
     private var contextWarned: Set<String> = []
     /// statusSince of the status last reminded about, per session.
@@ -187,6 +190,10 @@ final class IslandController {
         self.snapshot = usage
         self.usage = usage.turns
         set(\.windowCost, usage.windowCalls > 0 ? usage.windowCost : nil)
+        let now = Date().timeIntervalSince1970
+        set(\.fiveHour, usage.fiveHour)
+        set(\.sevenDay, usage.limits?.active(usage.limits?.sevenDay, now: now))
+        perDollar = usage.perDollar
         let alerts = SessionBoard.newAlerts(in: records, announced: announced, launch: launch)
         for alert in alerts { announced[alert.id] = alert.statusSince }
         refreshRows()
@@ -226,13 +233,17 @@ final class IslandController {
     /// A turn costing more than the limit in Settings, at API prices: warn once per turn.
     @discardableResult
     private func warnIfHeavy() -> Bool {
-        guard prefs.heavyTurnDollars > 0 else { return false }
-        let limit = Double(prefs.heavyTurnDollars)
-        let heavy = records.filter { record in
-            guard let start = record.turnStartedAt, let cost = usage[record.id]?.cost else { return false }
-            return cost >= limit && warnedHeavy[record.id] != start
+        // On a plan the limit is a share of the five hours; on API billing it is dollars.
+        func weight(_ usage: TurnUsage) -> Double? {
+            snapshot.limits != nil ? planShare(of: usage) : usage.cost
         }
-        guard let worst = heavy.max(by: { (usage[$0.id]?.cost ?? 0) < (usage[$1.id]?.cost ?? 0) }) else { return false }
+        let limit = Double(snapshot.limits != nil ? prefs.heavyTurnPercent : prefs.heavyTurnDollars)
+        guard limit > 0 else { return false }
+        let heavy = records.filter { record in
+            guard let start = record.turnStartedAt, let turn = usage[record.id], let value = weight(turn) else { return false }
+            return value >= limit && warnedHeavy[record.id] != start
+        }
+        guard let worst = heavy.max(by: { (usage[$0.id].flatMap(weight) ?? 0) < (usage[$1.id].flatMap(weight) ?? 0) }) else { return false }
         guard !shouldStayQuiet() else { return false }
         for record in heavy { warnedHeavy[record.id] = record.turnStartedAt }
         feedback.alert(taps: 2, sound: nil)
@@ -256,6 +267,8 @@ final class IslandController {
             stalled: SessionBoard.isStalled(record, now: now),
             usage: usage[record.id],
             contextPercent: contextPercent(of: record),
+            costShort: costTexts(usage[record.id]).short,
+            costLong: costTexts(usage[record.id]).long,
             record: record
         )
     }
@@ -434,6 +447,18 @@ final class IslandController {
 
     /// All sessions together past the five-hour limit in Settings: one warning until it eases off.
     private func warnIfWindowHeavy() -> Bool {
+        if snapshot.limits != nil {
+            guard prefs.limitWarnPercent > 0, let five = model.fiveHour else { return false }
+            let limit = Double(prefs.limitWarnPercent)
+            // A new window, or the old one easing off, arms the warning again.
+            if five.percent < limit - 10 || windowWarnedFor != five.resetsAt { windowWarned = false }
+            guard five.percent >= limit, !windowWarned, !shouldStayQuiet() else { return false }
+            windowWarned = true
+            windowWarnedFor = five.resetsAt
+            feedback.alert(taps: 2, sound: nil)
+            show(.planLimit(five, week: model.sevenDay))
+            return true
+        }
         guard prefs.windowDollars > 0 else { return false }
         let limit = Double(prefs.windowDollars)
         let cost = snapshot.windowCost
@@ -459,6 +484,27 @@ final class IslandController {
         feedback.alert(taps: 1, sound: nil)
         show(.context(row(for: full)))
         return true
+    }
+
+    /// On a plan: the turn's estimated share of the five-hour limit. On API billing: dollars.
+    private func costTexts(_ usage: TurnUsage?) -> (short: String?, long: String?) {
+        guard let usage, usage.calls > 0 else { return (nil, nil) }
+        if snapshot.limits != nil {
+            guard let share = planShare(of: usage) else { return (nil, nil) }
+            let text = LimitShare.text(share)
+            let mark = share < 1 ? "" : "≈"
+            return (mark + text, (mark.isEmpty ? "" : "≈ ") + text + " of 5h")
+        }
+        if usage.calls == usage.unpriced {
+            let tokens = UsageText.tokens(usage.tokens) + " tokens"
+            return (tokens, tokens)
+        }
+        let cost = "≈ " + UsageText.cost(usage.cost)
+        return (cost, cost + " at API prices")
+    }
+
+    private func planShare(of usage: TurnUsage) -> Double? {
+        perDollar.map { LimitShare.percent(cost: usage.cost, perDollar: $0) }
     }
 
     private func contextPercent(of record: SessionRecord) -> Int? {
@@ -701,7 +747,7 @@ final class IslandController {
             update(records: list, titles: [:])
             openList()
             collapseWork?.cancel()
-        case "reminder", "heavy", "list-usage", "window", "context":
+        case "reminder", "heavy", "list-usage", "window", "context", "plan-limit":
             var waiting = fake("d2", .waiting, "Fix flaky crawler test", "\(home)/BackendProjects/seo-crawler", ago: 640,
                                wait: .question)
             waiting.turnStartedAt = now - 900
@@ -727,12 +773,17 @@ final class IslandController {
             heavyUsage.model = "claude-opus-5-5"
             update(records: [waiting, working, done], titles: [:],
                    usage: UsageSnapshot(turns: ["d1": mode == "heavy" || mode == "context" ? heavyUsage : light, "d4": light],
-                                        windowCost: 74.6, windowCalls: 1735))
+                                        windowCost: 74.6, windowCalls: 1735,
+                                        limits: PlanLimits(fiveHour: .init(percent: 61, resetsAt: now + 1900),
+                                                           sevenDay: .init(percent: 17, resetsAt: now + 500_000), updatedAt: now - 600),
+                                        fiveHour: LimitEstimate(percent: mode == "plan-limit" ? 82 : 64, resetsAt: now + 1900, exact: false),
+                                        perDollar: 0.5))
             dismissBanner()
             switch mode {
             case "reminder": show(.reminder(row(for: waiting)))
             case "heavy": show(.heavy(row(for: working)))
             case "window": show(.window(cost: 152))
+            case "plan-limit": show(.planLimit(model.fiveHour!, week: model.sevenDay))
             case "context": show(.context(row(for: working)))
             default:
                 openList()

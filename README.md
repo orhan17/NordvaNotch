@@ -14,8 +14,8 @@ When you run two or three Claude Code sessions at once (in the terminal or in th
 - **Session events.** Finished, failed, asks a question, waits for plan approval, needs permission. The island expands for a few seconds with the session title, the project and the start of the last reply, then folds into a small dot with a count until you look.
 - **Working sessions at a glance.** While any session works, a small spinner turns beside the notch with the number of working sessions. It is drawn by Core Animation, so it costs the app no redraws.
 - **Reminders.** A session that still waits for you, or a result you have not opened, is announced once more after 10 minutes (5 to 30, or off).
-- **Turn time and cost.** Working sessions count their turn up; finished ones say how long it took. Each turn shows what it would cost at Anthropic API prices, read from the transcript with its subagents, and a turn that goes past $10 (adjustable) gets a warning. A subscription does not bill per token, but the same work uses up its limits.
-- **Five-hour window.** Subscription limits run in five-hour windows, so the list shows what every session and agent cost over the last five hours, sessions without the hooks included, and warns past $150 (adjustable).
+- **Plan limits.** On a Pro or Max plan the list shows the five-hour and weekly limits, the numbers `/usage` shows, and warns at 80% of the five hours. Claude Code reports them only to a status line, which the terminal draws and the desktop app does not, so between reports the five hours are carried forward with the usage of every session since (shown with ≈).
+- **Turn time and share.** Working sessions count their turn up; finished ones say how long it took. Each turn shows its estimated share of the five-hour limit, read from the transcript with its subagents, and a turn past 10% of it gets a warning. Without a plan (API billing) the same places show dollars at API prices.
 - **Context fill.** Each session shows how full its context is, against `autoCompactWindow` from Claude Code's settings or the model's own window, and warns at 85% that compaction is near.
 - **Haptic click.** One click when a session finishes, two when it needs you. The trackpad only plays it while a finger rests on it.
 - **Peek.** Rest the pointer on the notch for a moment and a strip slides out with up to three sessions as pills, each with its status. Point at a pill to read its status or the start of the last reply, click it to jump to that session. A pointer that only passes the notch on its way to the menu bar does not open it.
@@ -224,6 +224,19 @@ Claude Code picks up the change in running sessions too. Every hook runs `notch-
 | `PreToolUse` (`AskUserQuestion`, `ExitPlanMode` only) | asks a question or waits for plan approval |
 | `PostToolUse`, `PostToolUseFailure` | back to work after a permission prompt |
 | `SessionStart`, `SessionEnd` | the session appears and goes away |
+
+### Plan limits (Pro and Max)
+
+To see the real five-hour and weekly limits, let NordvaNotch be Claude Code's status line. Add this to `~/.claude/settings.json` (keep your own `statusLine` if you have one; NordvaNotch then shows dollars instead):
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "/Applications/NordvaNotch.app/Contents/MacOS/notch-hook --statusline || true"
+}
+```
+
+The terminal then shows `5h 58% · 7d 16% · ctx 5%` at the bottom, and NordvaNotch keeps the numbers in `~/Library/Application Support/NordvaNotch/limits.json`. The desktop app does not run status lines, so the numbers come from your terminal sessions; between them NordvaNotch carries the five hours forward from the usage of all sessions. A turn's share is an estimate: the window's real percentage spread over its requests by API price, since Anthropic does not publish how it weighs models, and chat in the Claude apps counts toward the same limit.
 
 ## Privacy
 

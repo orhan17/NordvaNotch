@@ -163,7 +163,7 @@ private struct PeekView: View {
         if failed > 0 { parts.append("\(failed) failed") }
         let more = model.rows.count - pills.count + model.hiddenCount
         if more > 0 { parts.append("+\(more) more") }
-        if let cost = model.windowCost { parts.append("5h ≈ " + UsageText.cost(cost)) }
+        if let limits = TurnText.limits(model) { parts.append(limits.short) }
         return parts.isEmpty ? "Click for all sessions" : parts.joined(separator: " · ")
     }
 
@@ -304,7 +304,7 @@ private struct BannerView: View {
                     tint: Palette.waiting,
                     title: row.title,
                     detail: TurnText.heavyDetail(of: row, now: Date()),
-                    trailing: row.usage.map { "≈ " + UsageText.cost($0.cost) } ?? ""
+                    trailing: row.costLong ?? ""
                 )
                 .contentShape(Rectangle())
                 .onTapGesture { actions.open(row) }
@@ -316,6 +316,18 @@ private struct BannerView: View {
                     title: "Heavy five hours",
                     detail: "All sessions and agents together, at API prices",
                     trailing: "≈ " + UsageText.cost(cost)
+                )
+                .contentShape(Rectangle())
+                .onTapGesture(perform: actions.openList)
+                .handCursor()
+            case .planLimit(let five, let week):
+                event(
+                    symbol: "hourglass",
+                    tint: Palette.waiting,
+                    title: "Five-hour limit at \(five.exact ? "" : "≈")\(Int(five.percent.rounded()))%",
+                    detail: "Resets at " + TurnText.clock(five.resetsAt)
+                        + (week.map { " · week \(Int($0.percent.rounded()))%" } ?? ""),
+                    trailing: "\(Int(five.percent.rounded()))%"
                 )
                 .contentShape(Rectangle())
                 .onTapGesture(perform: actions.openList)
@@ -422,11 +434,11 @@ private struct ListView: View {
     var body: some View {
         VStack(spacing: 0) {
             Band(model: model) {
-                if let cost = model.windowCost {
-                    Text("5h ≈ " + UsageText.cost(cost))
+                if let limits = TurnText.limits(model) {
+                    Text(limits.text)
                         .font(.system(size: 11, weight: .medium).monospacedDigit())
-                        .foregroundStyle(Palette.secondary)
-                        .help("Every session and agent over the last five hours, at API prices")
+                        .foregroundStyle(limits.warn ? Palette.waiting : Palette.secondary)
+                        .help(limits.help)
                 }
                 Button(action: actions.openSettings) {
                     Image(systemName: "gearshape.fill")
@@ -561,11 +573,34 @@ enum TurnText {
         SessionBoard.turnSeconds(of: row.record, now: now.timeIntervalSince1970).map(UsageText.duration)
     }
 
-    /// "≈ $0.42" at API prices; token count only when no request had a known price.
+    /// "≈3%" of the plan's five hours, or "≈ $0.42" on API billing.
     static func cost(of row: SessionRow) -> String? {
-        guard let usage = row.usage, usage.calls > 0 else { return nil }
-        if usage.calls == usage.unpriced { return UsageText.tokens(usage.tokens) + " tokens" }
-        return "≈ " + UsageText.cost(usage.cost)
+        row.costShort
+    }
+
+    static func clock(_ time: Double) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = Calendar.current.isDateInToday(Date(timeIntervalSince1970: time)) ? "HH:mm" : "EEE HH:mm"
+        return formatter.string(from: Date(timeIntervalSince1970: time))
+    }
+
+    /// The plan's limits when Claude Code reports them, otherwise the last five hours at API prices.
+    static func limits(_ model: IslandModel) -> (text: String, short: String, help: String, warn: Bool)? {
+        if let five = model.fiveHour {
+            let percent = Int(five.percent.rounded())
+            let mark = five.exact ? "" : "≈"
+            var text = "5h \(mark)\(percent)%"
+            var help = "Five-hour limit, resets at \(clock(five.resetsAt))"
+                + (five.exact ? "" : ". Carried forward from Claude Code's last report with the usage since")
+            if let week = model.sevenDay {
+                text += " · 7d \(Int(week.percent.rounded()))%"
+                help += "; weekly limit resets \(clock(week.resetsAt))"
+            }
+            return (text, "5h \(mark)\(percent)%", help, percent >= 80)
+        }
+        guard let cost = model.windowCost else { return nil }
+        let text = "5h ≈ " + UsageText.cost(cost)
+        return (text, text, "Every session and agent over the last five hours, at API prices", false)
     }
 
     static func agents(of row: SessionRow) -> String? {
@@ -583,7 +618,7 @@ enum TurnText {
         case .done: parts.append(duration.map { "Done in \($0)" } ?? "Done")
         default: parts.append(row.statusText)
         }
-        if let cost = cost(of: row) { parts.append(cost) }
+        if let cost = row.costLong { parts.append(cost) }
         if let agents = agents(of: row) { parts.append(agents) }
         if let percent = row.contextPercent { parts.append("ctx \(percent)%") }
         if row.status == .done, let reply = row.reply { parts.append(reply) }

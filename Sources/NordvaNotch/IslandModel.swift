@@ -14,6 +14,9 @@ struct SessionRow: Identifiable, Equatable {
     var usage: TurnUsage?
     /// How full the session's context is, against `autoCompactWindow` or the model's window.
     var contextPercent: Int?
+    /// The turn's usage in short ("≈3%" of the plan's five hours, or "≈ $0.42" on API billing) and long form.
+    var costShort: String?
+    var costLong: String?
     var record: SessionRecord
 }
 
@@ -23,8 +26,10 @@ enum Banner: Equatable {
     case reminder(SessionRow)
     /// A turn that went past the cost limit in Settings.
     case heavy(SessionRow)
-    /// The last five hours went past the limit in Settings, all sessions together.
+    /// The last five hours went past the limit in Settings, all sessions together:
+    /// the plan's percentage, or the cost at API prices without a plan.
     case window(cost: Double)
+    case planLimit(LimitEstimate, week: PlanLimits.Window?)
     /// A session whose context is nearly full: compaction is near.
     case context(SessionRow)
     case timer(minutes: Int)
@@ -32,7 +37,7 @@ enum Banner: Equatable {
     var row: SessionRow? {
         switch self {
         case .session(let row), .reminder(let row), .heavy(let row), .context(let row): return row
-        case .timer, .window: return nil
+        case .timer, .window, .planLimit: return nil
         }
     }
 
@@ -42,7 +47,7 @@ enum Banner: Equatable {
         case .reminder: return .reminder(row)
         case .heavy: return .heavy(row)
         case .context: return .context(row)
-        case .timer, .window: return self
+        case .timer, .window, .planLimit: return self
         }
     }
 }
@@ -74,6 +79,10 @@ final class IslandModel: ObservableObject {
     @Published var timerDone = false
     /// Every session and agent over the last five hours, at API prices; nil before the first reading.
     @Published var windowCost: Double?
+    /// The plan's limits, when Claude Code reports them (Pro and Max): the five hours carried forward
+    /// from the last report, the week as reported.
+    @Published var fiveHour: LimitEstimate?
+    @Published var sevenDay: PlanLimits.Window?
     @Published var contextWarnPercent = 85
 
     var timerRunning: Bool { timerEnd != nil }

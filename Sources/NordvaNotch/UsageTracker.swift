@@ -8,6 +8,12 @@ struct UsageSnapshot: Equatable {
     var windowCalls = 0
     /// `autoCompactWindow` from Claude Code's settings, if set.
     var configuredContext: Int?
+    /// The plan's real limits, kept by the status line command; nil on API billing.
+    var limits: PlanLimits?
+    /// The five-hour limit now: the last report carried forward with the usage since.
+    var fiveHour: LimitEstimate?
+    /// Percent of the five-hour limit per dollar at API prices, from the last report that allowed it.
+    var perDollar: Double?
 }
 
 /// Reads Claude Code transcripts as they grow, only the bytes appended since the last look, and
@@ -37,6 +43,10 @@ final class UsageTracker {
     private var recent: [String] = []
     private var lastScan = 0.0
     private var settingsCache: (modified: Date, value: Int?)?
+    private var perDollar: Double? = {
+        let saved = UserDefaults.standard.double(forKey: "limitPerDollar")
+        return saved > 0 ? saved : nil
+    }()
 
     init(home: String = NSHomeDirectory()) {
         projects = home + "/.claude/projects"
@@ -93,6 +103,31 @@ final class UsageTracker {
             windowCost: window.cost(now: now), windowCalls: window.calls(now: now),
             configuredContext: configuredContext()
         )
+        if let data = FileManager.default.contents(atPath: PlanLimits.defaultPath),
+           let limits = PlanLimits.decode([UInt8](data)) {
+            snapshot.limits = limits
+            if let five = limits.fiveHour {
+                let windowStart = five.resetsAt - PlanLimits.fiveHours
+                // The report's window must still be in memory to read the rate off it.
+                if windowStart >= now - Self.windowLength,
+                   let rate = LimitShare.perDollar(percent: five.percent, windowCost: window.cost(from: windowStart, to: limits.updatedAt)) {
+                    perDollar = rate
+                    UserDefaults.standard.set(rate, forKey: "limitPerDollar")
+                }
+                var nextWindow: (start: Double, cost: Double)?
+                if five.resetsAt <= now, var start = window.firstRequest(atOrAfter: five.resetsAt) {
+                    while start + PlanLimits.fiveHours <= now, let later = window.firstRequest(atOrAfter: start + PlanLimits.fiveHours) {
+                        start = later
+                    }
+                    nextWindow = (start, window.cost(since: start))
+                }
+                snapshot.fiveHour = LimitEstimate.fiveHour(
+                    limits, now: now, costSinceReport: window.cost(from: limits.updatedAt, to: now),
+                    perDollar: perDollar, nextWindow: nextWindow
+                )
+            }
+            snapshot.perDollar = perDollar
+        }
         for (id, var turn) in turns {
             turn.meter.setAgents(turn.agentFiles.count)
             turns[id] = turn

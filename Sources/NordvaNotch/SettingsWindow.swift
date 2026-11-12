@@ -56,6 +56,8 @@ private struct SettingsView: View {
     @State private var loginError: String?
     @State private var hooksInstalled = HookStatus.isInstalled
     @State private var copied = false
+    /// Claude Code has reported plan limits through the status line at least once.
+    private var onPlan: Bool { FileManager.default.fileExists(atPath: PlanLimits.defaultPath) }
 
     var body: some View {
         Form {
@@ -89,6 +91,19 @@ private struct SettingsView: View {
                 Text("Once more, for a session that still waits for you or a result you have not opened.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if onPlan {
+                    Picker("Warn at the five-hour limit", selection: $prefs.limitWarnPercent) {
+                        Text("Off").tag(0)
+                        ForEach([70, 80, 90], id: \.self) { Text("\($0)%").tag($0) }
+                    }
+                    Picker("Warn when one turn uses", selection: $prefs.heavyTurnPercent) {
+                        Text("Off").tag(0)
+                        ForEach([5, 10, 20, 30], id: \.self) { Text("\($0)% of 5h").tag($0) }
+                    }
+                    Text("The five-hour and weekly limits come from Claude Code's status line. A turn's share is an estimate: the window's real percentage spread over its requests by API price.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
                 Picker("Warn when a turn costs over", selection: $prefs.heavyTurnDollars) {
                     Text("Off").tag(0)
                     ForEach([5, 10, 20, 50], id: \.self) { Text("$\($0)").tag($0) }
@@ -97,9 +112,10 @@ private struct SettingsView: View {
                     Text("Off").tag(0)
                     ForEach([50, 100, 150, 200, 300], id: \.self) { Text("$\($0)").tag($0) }
                 }
-                Text("Estimated at Anthropic API prices from the session transcripts, subagents included; the five hours add up every session. A subscription does not bill per token, but the same work uses up its limits, which run in five-hour windows.")
+                Text("At Anthropic API prices from the session transcripts, subagents included; the five hours add up every session. On a Pro or Max plan, connect the status line (see the README) to see the plan's real limits instead.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
                 Picker("Warn when context is", selection: $prefs.contextWarnPercent) {
                     Text("Off").tag(0)
                     ForEach([70, 80, 85, 90], id: \.self) { Text("\($0)% full").tag($0) }

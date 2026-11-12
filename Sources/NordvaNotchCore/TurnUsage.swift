@@ -216,6 +216,21 @@ public struct RollingWindow: Sendable {
         requests.values.filter { now - $0.time < length }.reduce(0) { $0 + $1.cost }
     }
 
+    /// What the requests since `start` cost; the plan's window starts with its first message.
+    public func cost(since start: Double) -> Double {
+        requests.values.filter { $0.time >= start }.reduce(0) { $0 + $1.cost }
+    }
+
+    /// What the requests in `start...end` cost.
+    public func cost(from start: Double, to end: Double) -> Double {
+        requests.values.filter { $0.time >= start && $0.time <= end }.reduce(0) { $0 + $1.cost }
+    }
+
+    /// The first request at or after `time`: where a new plan window began.
+    public func firstRequest(atOrAfter time: Double) -> Double? {
+        requests.values.map(\.time).filter { $0 >= time }.min()
+    }
+
     public func calls(now: Double) -> Int {
         requests.values.filter { now - $0.time < length }.count
     }

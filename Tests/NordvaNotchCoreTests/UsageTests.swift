@@ -113,6 +113,72 @@ import Testing
     }
 }
 
+@Suite struct Plan {
+    let statusJSON = #"""
+    {"session_id":"s","rate_limits":{"five_hour":{"used_percentage":58,"resets_at":1794484200},"seven_day":{"used_percentage":16.4,"resets_at":1794999600}},
+     "context_window":{"context_window_size":1000000,"used_percentage":5}}
+    """#
+
+    @Test func statusLineInputGivesTheRealLimitsAndContext() {
+        let input = StatusLine.parse(Array(statusJSON.utf8), at: 1_794_470_000)
+        #expect(input.limits?.fiveHour == PlanLimits.Window(percent: 58, resetsAt: 1_794_484_200))
+        #expect(input.limits?.sevenDay?.percent == 16.4)
+        #expect(input.contextPercent == 5)
+        #expect(StatusLine.text(for: input, now: 1_794_470_000) == "5h 58% · 7d 16% · ctx 5%")
+        // Past its reset the five-hour window no longer counts.
+        #expect(StatusLine.text(for: input, now: 1_794_490_000) == "7d 16% · ctx 5%")
+    }
+
+    @Test func noRateLimitsMeansNoLimitsAtAll() {
+        let input = StatusLine.parse(Array(#"{"context_window":{"used_percentage":12}}"#.utf8), at: 0)
+        #expect(input.limits == nil)
+        #expect(StatusLine.text(for: input, now: 0) == "ctx 12%")
+        #expect(StatusLine.parse(Array("garbage".utf8), at: 0) == StatusLine.Input())
+    }
+
+    @Test func limitsRoundTrip() {
+        let limits = PlanLimits(fiveHour: .init(percent: 58, resetsAt: 10), sevenDay: nil, updatedAt: 5)
+        #expect(PlanLimits.decode(limits.encoded()) == limits)
+    }
+
+    @Test func turnShareIsCalibratedOnTheRealPercentage() {
+        // 58% of the five hours for $116 of API-priced work: half a percent per dollar.
+        let perDollar = LimitShare.perDollar(percent: 58, windowCost: 116)!
+        #expect(abs(perDollar - 0.5) < 1e-9)
+        #expect(LimitShare.text(LimitShare.percent(cost: 6, perDollar: perDollar)) == "3%")
+        #expect(LimitShare.text(LimitShare.percent(cost: 0.5, perDollar: perDollar)) == "<1%")
+        #expect(LimitShare.perDollar(percent: 1, windowCost: 50) == nil)
+        #expect(LimitShare.perDollar(percent: 40, windowCost: 0.5) == nil)
+    }
+
+    @Test func limitIsCarriedForwardBetweenReports() {
+        let limits = PlanLimits(fiveHour: .init(percent: 60, resetsAt: 10_000), sevenDay: nil, updatedAt: 1_000)
+        // Fresh report: as it is.
+        let fresh = LimitEstimate.fiveHour(limits, now: 1_050, costSinceReport: 0, perDollar: 0.5, nextWindow: nil)
+        #expect(fresh == LimitEstimate(percent: 60, resetsAt: 10_000, exact: true))
+        // Ten dollars of work later, at half a percent per dollar.
+        let later = LimitEstimate.fiveHour(limits, now: 5_000, costSinceReport: 10, perDollar: 0.5, nextWindow: nil)
+        #expect(later == LimitEstimate(percent: 65, resetsAt: 10_000, exact: false))
+        // Never past 100.
+        let capped = LimitEstimate.fiveHour(limits, now: 5_000, costSinceReport: 1_000, perDollar: 0.5, nextWindow: nil)
+        #expect(capped?.percent == 100)
+        // After the reset the next window begins with its first request.
+        let next = LimitEstimate.fiveHour(limits, now: 12_000, costSinceReport: 0, perDollar: 0.5, nextWindow: (start: 11_000, cost: 8))
+        #expect(next == LimitEstimate(percent: 4, resetsAt: 11_000 + PlanLimits.fiveHours, exact: false))
+        // Nothing since the reset: no window yet.
+        #expect(LimitEstimate.fiveHour(limits, now: 12_000, costSinceReport: 0, perDollar: 0.5, nextWindow: nil) == nil)
+    }
+
+    @Test func windowCostSinceThePlansWindowStarted() {
+        var window = RollingWindow(length: 5 * 3600)
+        let a = TranscriptLine.request(Substring(#"{"type":"assistant","timestamp":"2026-11-12T06:00:00.000Z","message":{"id":"a","model":"claude-opus-5-5","usage":{"output_tokens":1000000}}}"#), notBefore: "")!
+        let b = TranscriptLine.request(Substring(#"{"type":"assistant","timestamp":"2026-11-12T08:00:00.000Z","message":{"id":"b","model":"claude-opus-5-5","usage":{"output_tokens":100000}}}"#), notBefore: "")!
+        window.add(a)
+        window.add(b)
+        #expect(abs(window.cost(since: 1_794_466_800) - 2) < 0.0001)
+    }
+}
+
 @Suite struct Reminders {
     func record(_ id: String, _ status: SessionStatus, since: Double) -> SessionRecord {
         SessionRecord(id: id, status: status, cwd: "/p", at: since)

@@ -37,6 +37,10 @@ final class Preferences: ObservableObject {
     @Published var heavyTurnDollars: Int { didSet { save(heavyTurnDollars, "heavyTurnDollars") } }
     /// Dollars at API prices over five hours, all sessions together, that deserve a warning; 0 is off.
     @Published var windowDollars: Int { didSet { save(windowDollars, "windowDollars") } }
+    /// On a plan: the five-hour limit's percentage that deserves a warning; 0 is off.
+    @Published var limitWarnPercent: Int { didSet { save(limitWarnPercent, "limitWarnPercent") } }
+    /// On a plan: one turn's share of the five-hour limit that deserves a warning; 0 is off.
+    @Published var heavyTurnPercent: Int { didSet { save(heavyTurnPercent, "heavyTurnPercent") } }
     /// Context fill, in percent, that deserves a warning; 0 is off.
     @Published var contextWarnPercent: Int { didSet { save(contextWarnPercent, "contextWarnPercent") } }
 
@@ -59,6 +63,8 @@ final class Preferences: ObservableObject {
             "remindMinutes": 10,
             "heavyTurnDollars": 10,
             "windowDollars": 150,
+            "limitWarnPercent": 80,
+            "heavyTurnPercent": 10,
             "contextWarnPercent": 85,
         ])
         placement = Placement(rawValue: defaults.string(forKey: "placement") ?? "") ?? .notch
@@ -78,6 +84,8 @@ final class Preferences: ObservableObject {
         remindMinutes = defaults.integer(forKey: "remindMinutes")
         heavyTurnDollars = defaults.integer(forKey: "heavyTurnDollars")
         windowDollars = defaults.integer(forKey: "windowDollars")
+        limitWarnPercent = defaults.integer(forKey: "limitWarnPercent")
+        heavyTurnPercent = defaults.integer(forKey: "heavyTurnPercent")
         contextWarnPercent = defaults.integer(forKey: "contextWarnPercent")
     }
 
