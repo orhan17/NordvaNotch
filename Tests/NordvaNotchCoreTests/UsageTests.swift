@@ -62,6 +62,43 @@ import Testing
         #expect(abs(meter.usage.cost - 5) < 0.0001)
     }
 
+    @Test func contextIsTheLatestMainPromptNotASubagents() {
+        var meter = UsageMeter(since: start)
+        meter.ingest(line(id: "a", ts: "2026-11-12T07:00:01.000Z", input: 5, write1h: 1000, read: 400_000))
+        meter.ingest(line(id: "b", ts: "2026-11-12T07:00:02.000Z", input: 5, write1h: 2000, read: 401_000))
+        meter.ingest(line(id: "c", ts: "2026-11-12T07:00:03.000Z", model: "claude-haiku-5-5", input: 5, read: 30_000), main: false)
+        #expect(meter.usage.context == 5 + 2000 + 401_000)
+        #expect(meter.usage.model == "claude-opus-5-5")
+        #expect(ContextWindow.percent(meter.usage.context, of: 1_000_000) == 40)
+    }
+
+    @Test func contextWindowPrefersTheConfiguredOne() {
+        #expect(ContextWindow.size(model: "claude-opus-5-5", configured: 400_000) == 400_000)
+        #expect(ContextWindow.size(model: "claude-opus-5-5", configured: nil) == 1_000_000)
+        #expect(ContextWindow.size(model: "claude-haiku-4-5", configured: nil) == 200_000)
+        #expect(ContextWindow.size(model: nil, configured: 0) == 1_000_000)
+    }
+
+    @Test func rollingWindowCountsEachRequestOnceAndForgetsOldOnes() {
+        var window = RollingWindow(length: 5 * 3600)
+        let early = TranscriptLine.request(line(id: "e", ts: "2026-11-12T01:00:00.000Z", output: 1_000_000), notBefore: "")!
+        let late = TranscriptLine.request(line(id: "l", ts: "2026-11-12T07:00:00.000Z", output: 100_000), notBefore: "")!
+        window.add(early)
+        window.add(late)
+        window.add(late)
+        #expect(window.calls(now: start) == 1)
+        #expect(abs(window.cost(now: start) - 2) < 0.0001)
+        #expect(abs(window.cost(now: start - 3 * 3600) - 22) < 0.0001)
+        window.prune(now: start)
+        #expect(window.calls(now: start - 3 * 3600) == 1)
+    }
+
+    @Test func requestKeepsTheExactTime() {
+        let r = TranscriptLine.request(line(id: "x", ts: "2026-11-12T07:00:01.250Z", output: 1), notBefore: "2026-11-12T07:00:00.000Z")!
+        #expect(abs(r.time - (start + 1.25)) < 0.001)
+        #expect(TranscriptLine.request(line(id: "x", ts: "2026-11-12T06:59:59.000Z", output: 1), notBefore: "2026-11-12T07:00:00.000Z") == nil)
+    }
+
     @Test func texts() {
         #expect(UsageText.cost(0.004) == "<$0.01")
         #expect(UsageText.cost(0.42) == "$0.42")

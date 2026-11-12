@@ -4,7 +4,7 @@ import NordvaNotchCore
 /// Watches the sessions folder the hook writes to, and reads transcript titles and usage off the main thread.
 final class SessionMonitor {
     let store: SessionStore
-    var onChange: (([SessionRecord], [String: String], [String: TurnUsage]) -> Void)?
+    var onChange: (([SessionRecord], [String: String], UsageSnapshot) -> Void)?
 
     private var source: DispatchSourceFileSystemObject?
     private var pending = false
@@ -14,7 +14,7 @@ final class SessionMonitor {
     private let tracker = UsageTracker()
     private(set) var records: [SessionRecord] = []
     private(set) var titles: [String: String] = [:]
-    private(set) var usage: [String: TurnUsage] = [:]
+    private(set) var usage = UsageSnapshot()
 
     init(store: SessionStore) {
         self.store = store
@@ -69,7 +69,7 @@ final class SessionMonitor {
             for (id, path) in jobs {
                 if let title = self.title(atPath: path) { found[id] = title }
             }
-            let usage = self.tracker.usage(for: records, now: Date().timeIntervalSince1970)
+            let usage = self.tracker.refresh(records: records, now: Date().timeIntervalSince1970)
             DispatchQueue.main.async {
                 guard found != self.titles || usage != self.usage else { return }
                 self.titles = found

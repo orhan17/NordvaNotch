@@ -21,7 +21,11 @@ enum SelfCheck {
         let now = Date().timeIntervalSince1970
         let records = SessionBoard.ordered(store.all(), seen: Preferences().seen, now: now)
         print("sessions: \(records.count)")
-        let usage = UsageTracker().usage(for: records, now: now)
+        let snapshot = UsageTracker().refresh(records: records, now: now)
+        let usage = snapshot.turns
+        print("last 5 hours, every session and agent: \(snapshot.windowCalls) calls, ≈ \(UsageText.cost(snapshot.windowCost)) at API prices")
+        let window = snapshot.configuredContext.map { "autoCompactWindow \($0)" } ?? "model default"
+        print("context measured against: \(window)")
         for record in records {
             let title = SessionNaming.displayTitle(of: record, transcriptTitle: nil, home: NSHomeDirectory())
             let project = SessionNaming.projectName(cwd: record.cwd, home: NSHomeDirectory())
@@ -33,6 +37,8 @@ enum SelfCheck {
                     line += ", \(u.calls) calls, \(UsageText.tokens(u.tokens)) tokens"
                     line += " (in \(u.input), out \(u.output), write \(u.write5m + u.write1h), read \(u.read))"
                     line += ", ≈ \(UsageText.cost(u.cost)) at API prices, \(u.agents) agents"
+                    let size = ContextWindow.size(model: u.model, configured: snapshot.configuredContext)
+                    line += ", context \(ContextWindow.percent(u.context, of: size))% (\(UsageText.tokens(u.context)))"
                 }
                 print(line)
             }

@@ -12,6 +12,8 @@ struct SessionRow: Identifiable, Equatable {
     var unseen: Bool
     var stalled: Bool
     var usage: TurnUsage?
+    /// How full the session's context is, against `autoCompactWindow` or the model's window.
+    var contextPercent: Int?
     var record: SessionRecord
 }
 
@@ -21,12 +23,16 @@ enum Banner: Equatable {
     case reminder(SessionRow)
     /// A turn that went past the cost limit in Settings.
     case heavy(SessionRow)
+    /// The last five hours went past the limit in Settings, all sessions together.
+    case window(cost: Double)
+    /// A session whose context is nearly full: compaction is near.
+    case context(SessionRow)
     case timer(minutes: Int)
 
     var row: SessionRow? {
         switch self {
-        case .session(let row), .reminder(let row), .heavy(let row): return row
-        case .timer: return nil
+        case .session(let row), .reminder(let row), .heavy(let row), .context(let row): return row
+        case .timer, .window: return nil
         }
     }
 
@@ -35,7 +41,8 @@ enum Banner: Equatable {
         case .session: return .session(row)
         case .reminder: return .reminder(row)
         case .heavy: return .heavy(row)
-        case .timer: return self
+        case .context: return .context(row)
+        case .timer, .window: return self
         }
     }
 }
@@ -65,6 +72,9 @@ final class IslandModel: ObservableObject {
     @Published var timerEnabled = false
     /// A timer ended while the island had to stay quiet; cleared once the list is opened.
     @Published var timerDone = false
+    /// Every session and agent over the last five hours, at API prices; nil before the first reading.
+    @Published var windowCost: Double?
+    @Published var contextWarnPercent = 85
 
     var timerRunning: Bool { timerEnd != nil }
 }

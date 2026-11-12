@@ -163,6 +163,7 @@ private struct PeekView: View {
         if failed > 0 { parts.append("\(failed) failed") }
         let more = model.rows.count - pills.count + model.hiddenCount
         if more > 0 { parts.append("+\(more) more") }
+        if let cost = model.windowCost { parts.append("5h ≈ " + UsageText.cost(cost)) }
         return parts.isEmpty ? "Click for all sessions" : parts.joined(separator: " · ")
     }
 
@@ -308,6 +309,28 @@ private struct BannerView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { actions.open(row) }
                 .handCursor()
+            case .window(let cost):
+                event(
+                    symbol: "flame.fill",
+                    tint: Palette.waiting,
+                    title: "Heavy five hours",
+                    detail: "All sessions and agents together, at API prices",
+                    trailing: "≈ " + UsageText.cost(cost)
+                )
+                .contentShape(Rectangle())
+                .onTapGesture(perform: actions.openList)
+                .handCursor()
+            case .context(let row):
+                event(
+                    symbol: "gauge.with.dots.needle.67percent",
+                    tint: Palette.waiting,
+                    title: row.title,
+                    detail: "\(row.project) · context nearly full, compaction is near",
+                    trailing: row.contextPercent.map { "\($0)%" } ?? ""
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { actions.open(row) }
+                .handCursor()
             case .timer(let minutes):
                 event(symbol: "timer", tint: Palette.done, title: "Time is up", detail: "\(minutes) min timer", trailing: TimeText.countdown(Double(minutes) * 60))
                     .contentShape(Rectangle())
@@ -377,7 +400,8 @@ private struct Band<Trailing: View>: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "sparkle").font(.system(size: 11, weight: .bold)).foregroundStyle(Palette.claude)
-            Text(model.workingCount > 0 ? "\(model.workingCount) working" : "Claude Code")
+            Text((model.workingCount > 0 ? "\(model.workingCount) working" : "Claude Code")
+                 + (model.hiddenCount > 0 ? " · +\(model.hiddenCount)" : ""))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Palette.secondary)
                 .lineLimit(1)
@@ -398,10 +422,11 @@ private struct ListView: View {
     var body: some View {
         VStack(spacing: 0) {
             Band(model: model) {
-                if model.hiddenCount > 0 {
-                    Text("+\(model.hiddenCount) older")
-                        .font(.system(size: 11))
+                if let cost = model.windowCost {
+                    Text("5h ≈ " + UsageText.cost(cost))
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
                         .foregroundStyle(Palette.secondary)
+                        .help("Every session and agent over the last five hours, at API prices")
                 }
                 Button(action: actions.openSettings) {
                     Image(systemName: "gearshape.fill")
@@ -422,7 +447,7 @@ private struct ListView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(model.rows) { row in
-                        RowView(row: row) { actions.open(row) }
+                        RowView(row: row, warnPercent: model.contextWarnPercent) { actions.open(row) }
                             .frame(height: IslandLayout.rowHeight)
                     }
                 }
@@ -465,6 +490,7 @@ private struct ListView: View {
 
 private struct RowView: View {
     let row: SessionRow
+    let warnPercent: Int
     let action: () -> Void
     @State private var hover = false
 
@@ -481,9 +507,8 @@ private struct RowView: View {
                         Circle().fill(Palette.color(for: row.status)).frame(width: 6, height: 6)
                     }
                 }
-                Text(subtitle)
+                subtitle
                     .font(.system(size: 11))
-                    .foregroundStyle(Palette.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 6)
@@ -512,13 +537,21 @@ private struct RowView: View {
         .handCursor()
     }
 
-    private var subtitle: String {
-        if row.stalled { return "\(row.project) · No activity for a while" }
+    private var contextText: Text {
+        guard let percent = row.contextPercent else { return Text("") }
+        let full = warnPercent > 0 && percent >= warnPercent
+        return Text(" · ctx \(percent)%").foregroundColor(full ? Palette.waiting : Palette.secondary)
+    }
+
+    /// Context comes before the reply, which is long and gets cut.
+    private var subtitle: Text {
+        func plain(_ text: String) -> Text { Text(text).foregroundColor(Palette.secondary) }
+        if row.stalled { return plain("\(row.project) · No activity for a while") }
         if row.status == .done, let reply = row.reply {
             let duration = TurnText.duration(of: row, now: Date()).map { " · " + $0 } ?? ""
-            return "\(row.project)\(duration) · \(reply)"
+            return plain("\(row.project)\(duration)") + contextText + plain(" · \(reply)")
         }
-        return "\(row.project) · \(row.statusText)"
+        return plain("\(row.project) · \(row.statusText)") + contextText
     }
 }
 
@@ -552,6 +585,7 @@ enum TurnText {
         }
         if let cost = cost(of: row) { parts.append(cost) }
         if let agents = agents(of: row) { parts.append(agents) }
+        if let percent = row.contextPercent { parts.append("ctx \(percent)%") }
         if row.status == .done, let reply = row.reply { parts.append(reply) }
         return parts.joined(separator: " · ")
     }

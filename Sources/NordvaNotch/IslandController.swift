@@ -74,6 +74,11 @@ final class IslandController {
     private var titles: [String: String] = [:]
     private var announced: [String: Double] = [:]
     private var usage: [String: TurnUsage] = [:]
+    private var snapshot = UsageSnapshot()
+    /// Armed again once the window falls back under 80% of the limit.
+    private var windowWarned = false
+    /// Armed again once the context falls 15 points under the limit, after a compaction.
+    private var contextWarned: Set<String> = []
     /// statusSince of the status last reminded about, per session.
     private var reminded: [String: Double] = [:]
     /// turnStartedAt of the turn last warned about, per session.
@@ -144,6 +149,7 @@ final class IslandController {
         set(\.showReply, prefs.showReply)
         set(\.timerEnabled, prefs.timerEnabled)
         set(\.showWorking, prefs.showWorking)
+        set(\.contextWarnPercent, prefs.contextWarnPercent)
         if !prefs.timerEnabled {
             if model.timerRunning { stopTimer() }
             model.timerDone = false
@@ -175,10 +181,12 @@ final class IslandController {
 
     // MARK: Sessions
 
-    func update(records: [SessionRecord], titles: [String: String], usage: [String: TurnUsage] = [:]) {
+    func update(records: [SessionRecord], titles: [String: String], usage: UsageSnapshot = UsageSnapshot()) {
         self.records = records
         self.titles = titles
-        self.usage = usage
+        self.snapshot = usage
+        self.usage = usage.turns
+        set(\.windowCost, usage.windowCalls > 0 ? usage.windowCost : nil)
         let alerts = SessionBoard.newAlerts(in: records, announced: announced, launch: launch)
         for alert in alerts { announced[alert.id] = alert.statusSince }
         refreshRows()
@@ -193,8 +201,8 @@ final class IslandController {
                 show(.session(row(for: latest)))
             }
         }
-        if model.banner == nil && !listOpen && !remindIfDue() {
-            warnIfHeavy()
+        if model.banner == nil && !listOpen {
+            _ = remindIfDue() || warnIfHeavy() || warnIfWindowHeavy() || warnIfContextFull()
         }
         refreshMode()
     }
@@ -247,6 +255,7 @@ final class IslandController {
             unseen: SessionBoard.isUnseen(record, seen: seen),
             stalled: SessionBoard.isStalled(record, now: now),
             usage: usage[record.id],
+            contextPercent: contextPercent(of: record),
             record: record
         )
     }
@@ -421,6 +430,41 @@ final class IslandController {
         let attention = showAttention && (model.unseenCount > 0 || model.timerRunning || model.timerDone)
         let working = prefs.showWorking && model.workingCount > 0
         return attention || working
+    }
+
+    /// All sessions together past the five-hour limit in Settings: one warning until it eases off.
+    private func warnIfWindowHeavy() -> Bool {
+        guard prefs.windowDollars > 0 else { return false }
+        let limit = Double(prefs.windowDollars)
+        let cost = snapshot.windowCost
+        if cost < limit * 0.8 { windowWarned = false }
+        guard cost >= limit, !windowWarned, !shouldStayQuiet() else { return false }
+        windowWarned = true
+        feedback.alert(taps: 2, sound: nil)
+        show(.window(cost: cost))
+        return true
+    }
+
+    /// A session whose context passed the limit in Settings: compaction is coming.
+    private func warnIfContextFull() -> Bool {
+        guard prefs.contextWarnPercent > 0 else { return false }
+        var full: SessionRecord?
+        for record in records {
+            guard let percent = contextPercent(of: record) else { continue }
+            if percent < prefs.contextWarnPercent - 15 { contextWarned.remove(record.id) }
+            if percent >= prefs.contextWarnPercent, !contextWarned.contains(record.id) { full = record }
+        }
+        guard let full, !shouldStayQuiet() else { return false }
+        contextWarned.insert(full.id)
+        feedback.alert(taps: 1, sound: nil)
+        show(.context(row(for: full)))
+        return true
+    }
+
+    private func contextPercent(of record: SessionRecord) -> Int? {
+        guard let usage = usage[record.id], usage.context > 0 else { return nil }
+        let window = ContextWindow.size(model: usage.model, configured: snapshot.configuredContext)
+        return ContextWindow.percent(usage.context, of: window)
     }
 
     // MARK: Pointer
@@ -657,7 +701,7 @@ final class IslandController {
             update(records: list, titles: [:])
             openList()
             collapseWork?.cancel()
-        case "reminder", "heavy", "list-usage":
+        case "reminder", "heavy", "list-usage", "window", "context":
             var waiting = fake("d2", .waiting, "Fix flaky crawler test", "\(home)/BackendProjects/seo-crawler", ago: 640,
                                wait: .question)
             waiting.turnStartedAt = now - 900
@@ -677,12 +721,19 @@ final class IslandController {
             light.calls = 14
             light.read = 1_800_000
             light.cost = 0.62
+            light.context = 410_000
+            light.model = "claude-opus-5-5"
+            heavyUsage.context = 880_000
+            heavyUsage.model = "claude-opus-5-5"
             update(records: [waiting, working, done], titles: [:],
-                   usage: ["d1": mode == "heavy" ? heavyUsage : light, "d4": light])
+                   usage: UsageSnapshot(turns: ["d1": mode == "heavy" || mode == "context" ? heavyUsage : light, "d4": light],
+                                        windowCost: 74.6, windowCalls: 1735))
             dismissBanner()
             switch mode {
             case "reminder": show(.reminder(row(for: waiting)))
             case "heavy": show(.heavy(row(for: working)))
+            case "window": show(.window(cost: 152))
+            case "context": show(.context(row(for: working)))
             default:
                 openList()
                 collapseWork?.cancel()

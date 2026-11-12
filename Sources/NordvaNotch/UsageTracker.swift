@@ -1,9 +1,21 @@
 import Foundation
 import NordvaNotchCore
 
-/// Follows each session's transcript and its subagents' transcripts as they grow, reading only
-/// what was appended since the last look. Used from one serial queue only.
+struct UsageSnapshot: Equatable {
+    var turns: [String: TurnUsage] = [:]
+    /// Every session and agent over the last five hours, at API prices.
+    var windowCost = 0.0
+    var windowCalls = 0
+    /// `autoCompactWindow` from Claude Code's settings, if set.
+    var configuredContext: Int?
+}
+
+/// Reads Claude Code transcripts as they grow, only the bytes appended since the last look, and
+/// feeds each request to the turn of the session it belongs to and to the five-hour window.
+/// Used from one serial queue only.
 final class UsageTracker {
+    static let windowLength: Double = 5 * 3600
+
     private struct FileState {
         var offset: UInt64
         var partial = Data()
@@ -12,68 +24,137 @@ final class UsageTracker {
     private struct Turn {
         let since: Double
         var meter: UsageMeter
-        var files: [String: FileState] = [:]
         var agentFiles: Set<String> = []
     }
 
-    /// A transcript can be tens of megabytes; a turn never starts further back than this.
-    private static let window: UInt64 = 32 * 1024 * 1024
+    /// The first look at a file reads at most its last 64 MB: enough for five hours of any session.
+    private static let tail: UInt64 = 64 * 1024 * 1024
+    private let projects: String
+    private let settings: String
+    private var files: [String: FileState] = [:]
     private var turns: [String: Turn] = [:]
+    private var window = RollingWindow(length: UsageTracker.windowLength)
+    private var recent: [String] = []
+    private var lastScan = 0.0
+    private var settingsCache: (modified: Date, value: Int?)?
 
-    func usage(for records: [SessionRecord], now: Double) -> [String: TurnUsage] {
-        var result: [String: TurnUsage] = [:]
+    init(home: String = NSHomeDirectory()) {
+        projects = home + "/.claude/projects"
+        settings = home + "/.claude/settings.json"
+    }
+
+    func refresh(records: [SessionRecord], now: Double) -> UsageSnapshot {
+        let windowStart = now - Self.windowLength
+
+        // Which file belongs to which session's current turn.
+        var owners: [String: (id: String, main: Bool)] = [:]
         for record in records {
-            guard let start = record.turnStartedAt, let path = record.transcriptPath else { continue }
-            // Only the current turn of sessions that are busy or stopped recently is worth reading.
-            guard record.status == .working || now - record.updatedAt < 6 * 3600 else { continue }
-            var turn: Turn
-            if let known = turns[record.id], known.since == start {
-                turn = known
-            } else {
-                turn = Turn(since: start, meter: UsageMeter(since: start))
-                // A new turn begins after everything already read, so keep the read positions;
-                // only a turn first seen at launch needs the look back through the window.
-                turn.files = turns[record.id]?.files ?? [:]
+            guard let start = record.turnStartedAt, let path = record.transcriptPath,
+                  record.status == .working || now - record.updatedAt < 6 * 3600
+            else { continue }
+            if turns[record.id]?.since != start {
+                // A new turn begins after everything already read, so read positions are kept.
+                turns[record.id] = Turn(since: start, meter: UsageMeter(since: start))
             }
-            read(path, into: &turn, agent: false)
-            if path.hasSuffix(".jsonl") {
-                let folder = String(path.dropLast(".jsonl".count)) + "/subagents"
-                for name in (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []
-                where name.hasPrefix("agent-") && name.hasSuffix(".jsonl") {
-                    let file = folder + "/" + name
-                    if turn.files[file] == nil {
-                        let modified = (try? FileManager.default.attributesOfItem(atPath: file))?[.modificationDate] as? Date
-                        guard let modified, modified.timeIntervalSince1970 >= start else { continue }
-                    }
-                    read(file, into: &turn, agent: true)
-                }
+            owners[path] = (record.id, true)
+            for file in subagentFiles(of: path) where owners[file] == nil {
+                if files[file] == nil, modified(file) < min(start, windowStart) { continue }
+                owners[file] = (record.id, false)
             }
-            turn.meter.setAgents(turn.agentFiles.count)
-            turns[record.id] = turn
-            result[record.id] = turn.meter.usage
         }
         let live = Set(records.map(\.id))
         turns = turns.filter { live.contains($0.key) }
-        return result
+
+        // Every transcript touched within the window counts, sessions without hooks included.
+        if now - lastScan > 60 {
+            recent = scanRecent(since: windowStart)
+            lastScan = now
+        }
+
+        let active = Set(owners.keys).union(recent)
+        for path in active {
+            let owner = owners[path]
+            let turnStart = owner.flatMap { turns[$0.id]?.since } ?? windowStart
+            let notBefore = TranscriptLine.stamp(min(windowStart, turnStart))
+            guard let text = readNew(path) else { continue }
+            for line in text.split(separator: "\n") {
+                guard let request = TranscriptLine.request(line, notBefore: notBefore) else { continue }
+                if request.time >= windowStart { window.add(request) }
+                if let owner, var turn = turns[owner.id] {
+                    if turn.meter.add(request, main: owner.main), !owner.main { turn.agentFiles.insert(path) }
+                    turns[owner.id] = turn
+                }
+            }
+        }
+        files = files.filter { active.contains($0.key) }
+        window.prune(now: now)
+
+        var snapshot = UsageSnapshot(
+            windowCost: window.cost(now: now), windowCalls: window.calls(now: now),
+            configuredContext: configuredContext()
+        )
+        for (id, var turn) in turns {
+            turn.meter.setAgents(turn.agentFiles.count)
+            turns[id] = turn
+            snapshot.turns[id] = turn.meter.usage
+        }
+        return snapshot
     }
 
-    private func read(_ path: String, into turn: inout Turn, agent: Bool) {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return }
+    // MARK: Files
+
+    private func subagentFiles(of transcript: String) -> [String] {
+        guard transcript.hasSuffix(".jsonl") else { return [] }
+        let folder = String(transcript.dropLast(".jsonl".count)) + "/subagents"
+        return ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? [])
+            .filter { $0.hasPrefix("agent-") && $0.hasSuffix(".jsonl") }
+            .map { folder + "/" + $0 }
+    }
+
+    /// `~/.claude/projects/<project>/<session>.jsonl` and `<project>/<session>/subagents/agent-*.jsonl`.
+    private func scanRecent(since: Double) -> [String] {
+        let manager = FileManager.default
+        var found: [String] = []
+        for project in (try? manager.contentsOfDirectory(atPath: projects)) ?? [] {
+            let folder = projects + "/" + project
+            for name in (try? manager.contentsOfDirectory(atPath: folder)) ?? [] {
+                let path = folder + "/" + name
+                if name.hasSuffix(".jsonl") {
+                    if modified(path) >= since { found.append(path) }
+                } else if !name.contains(".") {
+                    for agent in subagentFiles(of: path + ".jsonl") where modified(agent) >= since {
+                        found.append(agent)
+                    }
+                }
+            }
+        }
+        return found
+    }
+
+    private func modified(_ path: String) -> Double {
+        var info = stat()
+        guard stat(path, &info) == 0 else { return 0 }
+        return Double(info.st_mtimespec.tv_sec)
+    }
+
+    /// The complete lines appended since the last call; a line still being written waits.
+    private func readNew(_ path: String) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
-        guard let size = try? handle.seekToEnd() else { return }
+        guard let size = try? handle.seekToEnd() else { return nil }
 
         var skipFirstLine = false
         var state: FileState
-        if let known = turn.files[path], known.offset <= size {
+        if let known = files[path], known.offset <= size {
             state = known
         } else {
-            let start = agent || size <= Self.window ? 0 : size - Self.window
+            let start = size > Self.tail ? size - Self.tail : 0
             state = FileState(offset: start)
             skipFirstLine = start > 0
         }
         guard size > state.offset else {
-            turn.files[path] = state
-            return
+            files[path] = state
+            return nil
         }
         try? handle.seek(toOffset: state.offset)
         let chunk = (try? handle.read(upToCount: Int(size - state.offset))) ?? Data()
@@ -83,7 +164,6 @@ final class UsageTracker {
         if skipFirstLine, let firstNewline = bytes.firstIndex(of: 0x0A) {
             bytes = Data(bytes[bytes.index(after: firstNewline)...])
         }
-        // A line still being written stays for the next read.
         if let lastNewline = bytes.lastIndex(of: 0x0A) {
             state.partial = Data(bytes[bytes.index(after: lastNewline)...])
             bytes = Data(bytes[..<lastNewline])
@@ -91,12 +171,21 @@ final class UsageTracker {
             state.partial = bytes
             bytes = Data()
         }
+        files[path] = state
+        return bytes.isEmpty ? nil : String(decoding: bytes, as: UTF8.self)
+    }
 
-        var counted = false
-        for line in String(decoding: bytes, as: UTF8.self).split(separator: "\n") where turn.meter.ingest(line) {
-            counted = true
+    private func configuredContext() -> Int? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: settings),
+              let modified = attributes[.modificationDate] as? Date
+        else { return nil }
+        if let cache = settingsCache, cache.modified == modified { return cache.value }
+        var value: Int?
+        if let data = FileManager.default.contents(atPath: settings),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            value = (object["autoCompactWindow"] as? NSNumber)?.intValue
         }
-        if agent && counted { turn.agentFiles.insert(path) }
-        turn.files[path] = state
+        settingsCache = (modified, value)
+        return value
     }
 }

@@ -93,9 +93,17 @@ private struct SettingsView: View {
                     Text("Off").tag(0)
                     ForEach([5, 10, 20, 50], id: \.self) { Text("$\($0)").tag($0) }
                 }
-                Text("Estimated at Anthropic API prices from the session transcript, subagents included. A subscription does not bill per token, but the same work uses up its limits.")
+                Picker("Warn when 5 hours cost over", selection: $prefs.windowDollars) {
+                    Text("Off").tag(0)
+                    ForEach([50, 100, 150, 200, 300], id: \.self) { Text("$\($0)").tag($0) }
+                }
+                Text("Estimated at Anthropic API prices from the session transcripts, subagents included; the five hours add up every session. A subscription does not bill per token, but the same work uses up its limits, which run in five-hour windows.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Picker("Warn when context is", selection: $prefs.contextWarnPercent) {
+                    Text("Off").tag(0)
+                    ForEach([70, 80, 85, 90], id: \.self) { Text("\($0)% full").tag($0) }
+                }
             }
 
             Section("Island") {

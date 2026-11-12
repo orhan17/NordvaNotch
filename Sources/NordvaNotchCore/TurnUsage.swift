@@ -13,10 +13,31 @@ public struct TurnUsage: Equatable, Sendable {
     /// Requests from a model missing in the price list; their tokens count, their cost does not.
     public var unpriced = 0
     public var agents = 0
+    /// Prompt size of the latest request in the main conversation: how full its context is.
+    public var context = 0
+    public var model: String?
 
     public init() {}
 
     public var tokens: Int { input + output + write5m + write1h + read }
+}
+
+/// One request to the model, as a transcript line records it.
+public struct UsageRequest: Equatable, Sendable {
+    public var id: String
+    public var time: Double
+    public var model: String
+    public var input: Int
+    public var output: Int
+    public var write5m: Int
+    public var write1h: Int
+    public var read: Int
+    /// nil when the model is missing in the price list.
+    public var cost: Double?
+
+    public var tokens: Int { input + output + write5m + write1h + read }
+    /// Everything the model was given: the context this request filled.
+    public var prompt: Int { input + write5m + write1h + read }
 }
 
 /// API prices per million tokens. A Claude subscription does not bill per token, but the same
@@ -72,64 +93,40 @@ public enum Pricing {
     }
 }
 
-/// Adds up the assistant messages of one turn from transcript lines. Claude Code writes one line
-/// per content block, each repeating the message's usage, so messages are counted once by id.
-public struct UsageMeter: Sendable {
-    public let since: Double
-    public private(set) var usage = TurnUsage()
-    private var seen = Set<String>()
-    private let sinceStamp: String
-
-    public init(since: Double) {
-        self.since = since
-        sinceStamp = Self.stamp(since)
-    }
-
-    /// Returns true when the line added a request.
-    @discardableResult
-    public mutating func ingest(_ line: Substring) -> Bool {
-        guard line.contains("\"usage\""), line.contains("\"assistant\"") else { return false }
+public enum TranscriptLine {
+    /// The request an assistant line records, or nil for any other line and for lines older than
+    /// `notBefore` (an ISO 8601 UTC stamp). Claude Code writes one line per content block, each
+    /// repeating the message's usage, so callers count a message once by `id`.
+    public static func request(_ line: Substring, notBefore: String) -> UsageRequest? {
+        guard line.contains("\"usage\""), line.contains("\"assistant\"") else { return nil }
         // Timestamps are fixed-width UTC, so comparing the text skips old lines without parsing them.
-        if let stamp = Self.timestamp(in: line), stamp < sinceStamp { return false }
+        if let stamp = timestamp(in: line), stamp < notBefore { return nil }
         guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
               object["type"] as? String == "assistant",
+              let stamp = object["timestamp"] as? String, stamp >= notBefore,
+              let time = parse(stamp),
               let message = object["message"] as? [String: Any],
               let id = message["id"] as? String,
-              let fields = message["usage"] as? [String: Any],
-              !seen.contains(id)
-        else { return false }
-        if let stamp = object["timestamp"] as? String, stamp < sinceStamp { return false }
-        seen.insert(id)
+              let fields = message["usage"] as? [String: Any]
+        else { return nil }
 
         func int(_ dict: [String: Any]?, _ key: String) -> Int {
             (dict?[key] as? NSNumber)?.intValue ?? 0
         }
-        let input = int(fields, "input_tokens")
-        let output = int(fields, "output_tokens")
-        let read = int(fields, "cache_read_input_tokens")
         let breakdown = fields["cache_creation"] as? [String: Any]
-        var write5m = int(breakdown, "ephemeral_5m_input_tokens")
-        let write1h = int(breakdown, "ephemeral_1h_input_tokens")
-        if breakdown == nil { write5m = int(fields, "cache_creation_input_tokens") }
-
-        usage.calls += 1
-        usage.input += input
-        usage.output += output
-        usage.read += read
-        usage.write5m += write5m
-        usage.write1h += write1h
-        let model = message["model"] as? String ?? ""
-        let fast = fields["speed"] as? String == "fast"
-        if let cost = Pricing.cost(model: model, input: input, output: output, write5m: write5m, write1h: write1h, read: read, fast: fast) {
-            usage.cost += cost
-        } else {
-            usage.unpriced += 1
-        }
-        return true
-    }
-
-    public mutating func setAgents(_ count: Int) {
-        usage.agents = count
+        var request = UsageRequest(
+            id: id, time: time, model: message["model"] as? String ?? "",
+            input: int(fields, "input_tokens"), output: int(fields, "output_tokens"),
+            write5m: int(breakdown, "ephemeral_5m_input_tokens"), write1h: int(breakdown, "ephemeral_1h_input_tokens"),
+            read: int(fields, "cache_read_input_tokens"), cost: nil
+        )
+        if breakdown == nil { request.write5m = int(fields, "cache_creation_input_tokens") }
+        request.cost = Pricing.cost(
+            model: request.model, input: request.input, output: request.output,
+            write5m: request.write5m, write1h: request.write1h, read: request.read,
+            fast: fields["speed"] as? String == "fast"
+        )
+        return request
     }
 
     static func timestamp(in line: Substring) -> String? {
@@ -139,11 +136,104 @@ public struct UsageMeter: Sendable {
         return String(rest[..<end])
     }
 
-    static func stamp(_ time: Double) -> String {
+    private static let formatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(identifier: "UTC")
-        return formatter.string(from: Date(timeIntervalSince1970: time))
+        return formatter
+    }()
+
+    public static func stamp(_ time: Double) -> String {
+        formatter.string(from: Date(timeIntervalSince1970: time))
+    }
+
+    static func parse(_ stamp: String) -> Double? {
+        formatter.date(from: stamp)?.timeIntervalSince1970
+    }
+}
+
+/// Adds up the requests of one turn.
+public struct UsageMeter: Sendable {
+    public let since: Double
+    public private(set) var usage = TurnUsage()
+    private var seen = Set<String>()
+    public let sinceStamp: String
+
+    public init(since: Double) {
+        self.since = since
+        sinceStamp = TranscriptLine.stamp(since)
+    }
+
+    /// Returns true when the line added a request.
+    @discardableResult
+    public mutating func ingest(_ line: Substring, main: Bool = true) -> Bool {
+        guard let request = TranscriptLine.request(line, notBefore: sinceStamp) else { return false }
+        return add(request, main: main)
+    }
+
+    /// `main` is false for a subagent's request, which does not tell how full the session's context is.
+    @discardableResult
+    public mutating func add(_ request: UsageRequest, main: Bool) -> Bool {
+        guard request.time >= since, !seen.contains(request.id) else { return false }
+        seen.insert(request.id)
+        usage.calls += 1
+        usage.input += request.input
+        usage.output += request.output
+        usage.read += request.read
+        usage.write5m += request.write5m
+        usage.write1h += request.write1h
+        if let cost = request.cost { usage.cost += cost } else { usage.unpriced += 1 }
+        if main {
+            usage.context = request.prompt
+            usage.model = request.model
+        }
+        return true
+    }
+
+    public mutating func setAgents(_ count: Int) {
+        usage.agents = count
+    }
+}
+
+/// Usage across every session over a sliding window: the subscription limits work on five hours.
+public struct RollingWindow: Sendable {
+    public let length: Double
+    private var requests: [String: (time: Double, cost: Double)] = [:]
+
+    public init(length: Double) {
+        self.length = length
+    }
+
+    public mutating func add(_ request: UsageRequest) {
+        requests[request.id] = (request.time, request.cost ?? 0)
+    }
+
+    public mutating func prune(now: Double) {
+        requests = requests.filter { now - $0.value.time < length }
+    }
+
+    public func cost(now: Double) -> Double {
+        requests.values.filter { now - $0.time < length }.reduce(0) { $0 + $1.cost }
+    }
+
+    public func calls(now: Double) -> Int {
+        requests.values.filter { now - $0.time < length }.count
+    }
+}
+
+public enum ContextWindow {
+    /// The window a session's context is measured against: `autoCompactWindow` from Claude Code's
+    /// settings when set, otherwise the model's own (1M on current models, 200K on Haiku 4.5 and older).
+    public static func size(model: String?, configured: Int?) -> Int {
+        if let configured, configured > 0 { return configured }
+        guard let model else { return 1_000_000 }
+        let small = ["claude-haiku-4", "claude-3", "claude-sonnet-4-5", "claude-opus-4-5", "claude-opus-4-1", "claude-opus-4-0", "claude-sonnet-4-0"]
+        return small.contains { model.hasPrefix($0) } ? 200_000 : 1_000_000
+    }
+
+    public static func percent(_ tokens: Int, of window: Int) -> Int {
+        guard window > 0 else { return 0 }
+        return Int((Double(tokens) / Double(window) * 100).rounded())
     }
 }
 

@@ -35,6 +35,10 @@ final class Preferences: ObservableObject {
     @Published var remindMinutes: Int { didSet { save(remindMinutes, "remindMinutes") } }
     /// Dollars at API prices that make a turn worth a warning; 0 is off.
     @Published var heavyTurnDollars: Int { didSet { save(heavyTurnDollars, "heavyTurnDollars") } }
+    /// Dollars at API prices over five hours, all sessions together, that deserve a warning; 0 is off.
+    @Published var windowDollars: Int { didSet { save(windowDollars, "windowDollars") } }
+    /// Context fill, in percent, that deserves a warning; 0 is off.
+    @Published var contextWarnPercent: Int { didSet { save(contextWarnPercent, "contextWarnPercent") } }
 
     init() {
         defaults.register(defaults: [
@@ -54,6 +58,8 @@ final class Preferences: ObservableObject {
             "showWorking": true,
             "remindMinutes": 10,
             "heavyTurnDollars": 10,
+            "windowDollars": 150,
+            "contextWarnPercent": 85,
         ])
         placement = Placement(rawValue: defaults.string(forKey: "placement") ?? "") ?? .notch
         popOnDone = defaults.bool(forKey: "popOnDone")
@@ -71,6 +77,8 @@ final class Preferences: ObservableObject {
         showWorking = defaults.bool(forKey: "showWorking")
         remindMinutes = defaults.integer(forKey: "remindMinutes")
         heavyTurnDollars = defaults.integer(forKey: "heavyTurnDollars")
+        windowDollars = defaults.integer(forKey: "windowDollars")
+        contextWarnPercent = defaults.integer(forKey: "contextWarnPercent")
     }
 
     /// Seen marks survive restarts, otherwise every finished session would light up again.
