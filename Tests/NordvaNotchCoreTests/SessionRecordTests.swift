@@ -181,6 +181,26 @@ private let sid = "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b"
         #expect(SessionNaming.statusText(of: written(SessionRecord.apply(older, to: working, at: 150))) == "Finished")
     }
 
+    @Test func claudeCodesOwnUpkeepAndFinishedTasksAreNotStillRunning() {
+        let stop = event(#"""
+        {"session_id":"\#(sid)","hook_event_name":"Stop","background_tasks":[
+          {"id":"d1","type":"dream","status":"running","description":"memory"},
+          {"id":"s1","type":"auto-mode scan","status":"running","description":"scan"},
+          {"id":"m1","type":"memory import","status":"pending","description":"import"},
+          {"id":"t1","type":"shell","status":"completed","description":"build","command":"swift build"},
+          {"id":"t2","type":"monitor","status":"pending","description":"watch","server":"s","tool":"t"}]}
+        """#)
+        let done = written(SessionRecord.apply(stop, to: start(), at: 130))
+        #expect(done.backgroundAgents == 0)
+        #expect(done.backgroundCommands == 1)
+
+        let upkeep = event(#"""
+        {"session_id":"\#(sid)","hook_event_name":"Stop","background_tasks":[
+          {"id":"d1","type":"dream","status":"running","description":"memory"}]}
+        """#)
+        #expect(SessionNaming.statusText(of: written(SessionRecord.apply(upkeep, to: start(), at: 130))) == "Finished")
+    }
+
     @Test func otherNotificationsAreIgnored() {
         let note = event(#"{"session_id":"\#(sid)","hook_event_name":"Notification","notification_type":"auth_success"}"#)
         #expect(SessionRecord.apply(note, to: start(), at: 110) == .ignore)

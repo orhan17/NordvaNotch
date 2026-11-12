@@ -68,10 +68,19 @@ public struct HookEvent: Sendable {
         event.error = text("error") ?? text("error_message") ?? text("error_type")
         event.agentID = text("agent_id")
         if let tasks = payload["background_tasks"] as? [[String: Any]] {
-            // Subagents, workflows, teammates and cloud sessions are agents; shells, monitors and MCP tasks are commands.
+            // Only work that reports back to the session counts. Claude Code's own upkeep (memory
+            // consolidation, auto-mode scans, memory imports) is listed too, but it never wakes the
+            // session, so counting it would leave "still running" up after it is long gone.
             let agentTypes: Set<String> = ["subagent", "workflow", "teammate", "cloud session"]
-            let agents = tasks.filter { agentTypes.contains(($0["type"] as? String ?? "").lowercased()) }.count
-            event.background = (agents, tasks.count - agents)
+            let commandTypes: Set<String> = ["shell", "monitor", "mcp task", "code"]
+            var agents = 0, commands = 0
+            for task in tasks {
+                let status = (task["status"] as? String ?? "running").lowercased()
+                guard status == "running" || status == "pending" else { continue }
+                let type = (task["type"] as? String ?? "").lowercased()
+                if agentTypes.contains(type) { agents += 1 } else if commandTypes.contains(type) { commands += 1 }
+            }
+            event.background = (agents, commands)
         }
         event.entrypoint = environment["CLAUDE_CODE_ENTRYPOINT"].flatMap { $0.isEmpty ? nil : $0 }
         event.hostSessionID = environment["CLAUDE_CODE_HOST_SESSION_ID"].flatMap { $0.isEmpty ? nil : $0 }
