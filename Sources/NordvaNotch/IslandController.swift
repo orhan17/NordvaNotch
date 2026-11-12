@@ -69,6 +69,7 @@ final class IslandController {
     private let prefs: Preferences
     private let feedback: Feedback
     private let panel = IslandPanel()
+    private var host: IslandHostingView?
     private var records: [SessionRecord] = []
     private var titles: [String: String] = [:]
     private var announced: [String: Double] = [:]
@@ -83,6 +84,7 @@ final class IslandController {
     private var peekOpen = false
     private var hoverWork: DispatchWorkItem?
     private var peekCollapseWork: DispatchWorkItem?
+    private var shrinkWork: DispatchWorkItem?
     /// Something was held back during a call; keep the dot even if the compact wings are off.
     private var quietPending = false
     private var bannerWork: DispatchWorkItem?
@@ -104,8 +106,15 @@ final class IslandController {
     func start() {
         let host = IslandHostingView(rootView: IslandView(model: model, actions: actions))
         host.frame = NSRect(x: 0, y: 0, width: IslandLayout.canvasWidth, height: IslandLayout.canvasHeight)
+        self.host = host
         host.contextMenu = { [weak self] in self?.contextMenu?() ?? NSMenu() }
-        panel.contentView = host
+        // The SwiftUI view keeps one fixed size; the window is only a frame around it that grows and
+        // shrinks with the shape. Moving the view inside the window is AppKit's business and is never
+        // animated, so the shape cannot drift while the window changes.
+        let container = NSView()
+        container.autoresizesSubviews = false
+        container.addSubview(host)
+        panel.contentView = container
         if let screen = homeScreen() { place(on: screen) }
         applyPreferences()
         panel.orderFrontRegardless()
@@ -132,9 +141,9 @@ final class IslandController {
     }
 
     func applyPreferences() {
-        model.showReply = prefs.showReply
-        model.timerEnabled = prefs.timerEnabled
-        model.showWorking = prefs.showWorking
+        set(\.showReply, prefs.showReply)
+        set(\.timerEnabled, prefs.timerEnabled)
+        set(\.showWorking, prefs.showWorking)
         if !prefs.timerEnabled {
             if model.timerRunning { stopTimer() }
             model.timerDone = false
@@ -246,15 +255,21 @@ final class IslandController {
         let now = Date().timeIntervalSince1970
         let ordered = SessionBoard.ordered(records, seen: seen, now: now)
         let rows = ordered.prefix(IslandLayout.maxVisibleRows).map(row(for:))
-        if model.rows != rows { model.rows = rows }
-        model.hiddenCount = max(0, ordered.count - rows.count)
-        model.workingCount = records.filter { $0.status == .working && !SessionBoard.isStalled($0, now: now) }.count
-        model.unseenCount = SessionBoard.unseenCount(records, seen: seen)
-        model.attention = ordered.first { SessionBoard.isUnseen($0, seen: seen) }?.status
+        // @Published announces every assignment, equal or not, and each one costs SwiftUI a full
+        // layout pass; this runs every 15 seconds, so only real changes are written.
+        set(\.rows, rows)
+        set(\.hiddenCount, max(0, ordered.count - rows.count))
+        set(\.workingCount, records.filter { $0.status == .working && !SessionBoard.isStalled($0, now: now) }.count)
+        set(\.unseenCount, SessionBoard.unseenCount(records, seen: seen))
+        set(\.attention, ordered.first { SessionBoard.isUnseen($0, seen: seen) }?.status)
         if let banner = model.banner, let shown = banner.row, let fresh = records.first(where: { $0.id == shown.id }) {
             let updated = banner.replacing(row(for: fresh))
             if model.banner != updated { model.banner = updated }
         }
+    }
+
+    private func set<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<IslandModel, Value>, _ value: Value) {
+        if model[keyPath: keyPath] != value { model[keyPath: keyPath] = value }
     }
 
     func markSeen(_ ids: [String]) {
@@ -362,9 +377,42 @@ final class IslandController {
         } else {
             mode = .idle
         }
-        if model.mode != mode { model.mode = mode }
+        if model.mode != mode {
+            fitPanel(to: mode)
+            model.mode = mode
+        }
         if !listOpen && model.banner == nil && !peekOpen { scheduleGoHome() }
         pointerMoved()
+    }
+
+    /// Grows the panel before the shape expands, so the animation is never clipped, and shrinks
+    /// it once the shape has settled.
+    private func fitPanel(to mode: IslandMode) {
+        shrinkWork?.cancel()
+        let target = IslandLayout.panelFrame(for: mode, anchor: model.anchor).nsRect
+        let current = panel.frame
+        if target.width > current.width || target.height > current.height {
+            let width = max(target.width, current.width)
+            let height = max(target.height, current.height)
+            resizePanel(to: NSRect(x: target.midX - width / 2, y: target.maxY - height, width: width, height: height))
+        }
+        guard panel.frame != target else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.model.mode == mode else { return }
+            self.resizePanel(to: target)
+        }
+        shrinkWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
+    }
+
+    /// The window's top centre is always the notch, and so is the SwiftUI view's.
+    private func resizePanel(to frame: NSRect) {
+        panel.setFrame(frame, display: false)
+        host?.setFrameOrigin(NSPoint(
+            x: (frame.width - IslandLayout.canvasWidth) / 2,
+            y: frame.height - IslandLayout.canvasHeight
+        ))
+        panel.display()
     }
 
     private var compactWanted: Bool {
@@ -479,8 +527,8 @@ final class IslandController {
             transaction.disablesAnimations = true
             withTransaction(transaction) { model.anchor = anchor }
         }
-        let frame = IslandLayout.canvas(anchor: anchor).nsRect
-        if panel.frame != frame { panel.setFrame(frame, display: true) }
+        let frame = IslandLayout.panelFrame(for: model.mode, anchor: anchor).nsRect
+        if panel.frame != frame { resizePanel(to: frame) }
     }
 
     /// After a banner on another display, return to the notch once the shape has collapsed.

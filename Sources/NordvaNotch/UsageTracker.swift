@@ -26,8 +26,15 @@ final class UsageTracker {
             guard let start = record.turnStartedAt, let path = record.transcriptPath else { continue }
             // Only the current turn of sessions that are busy or stopped recently is worth reading.
             guard record.status == .working || now - record.updatedAt < 6 * 3600 else { continue }
-            var turn = turns[record.id].flatMap { $0.since == start ? $0 : nil }
-                ?? Turn(since: start, meter: UsageMeter(since: start))
+            var turn: Turn
+            if let known = turns[record.id], known.since == start {
+                turn = known
+            } else {
+                turn = Turn(since: start, meter: UsageMeter(since: start))
+                // A new turn begins after everything already read, so keep the read positions;
+                // only a turn first seen at launch needs the look back through the window.
+                turn.files = turns[record.id]?.files ?? [:]
+            }
             read(path, into: &turn, agent: false)
             if path.hasSuffix(".jsonl") {
                 let folder = String(path.dropLast(".jsonl".count)) + "/subagents"

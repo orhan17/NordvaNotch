@@ -199,6 +199,18 @@ import Testing
         #expect(IslandLayout.pillIndex(x: 756, y: y, count: 0, anchor: a) == nil)
     }
 
+    @Test func panelHugsTheShapeWithAMargin() {
+        let a = NotchAnchor(screen: builtIn)
+        let idle = IslandLayout.panelFrame(for: .idle, anchor: a)
+        #expect(idle.maxY == 982)
+        #expect(idle.midX == 756)
+        #expect(idle.width == 185 + IslandLayout.panelMargin * 2)
+        #expect(idle.height == 32 + IslandLayout.panelMargin)
+        let list = IslandLayout.panelFrame(for: .list(rows: 6, timer: false), anchor: a)
+        #expect(list.height > idle.height)
+        #expect(list.maxY == 982)
+    }
+
     @Test func idleNotchIsClickableButAnIdlePillIsNot() {
         let notch = NotchAnchor(screen: builtIn)
         #expect(IslandLayout.isInteractive(mode: .idle, anchor: notch, x: 756, y: 970))

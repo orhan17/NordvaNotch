@@ -190,6 +190,21 @@ public enum IslandLayout {
         return index
     }
 
+    /// Room around the shape for the spring's overshoot.
+    public static let panelMargin = 16.0
+
+    /// The panel that hosts the shape: just the shape and a margin, top edge flush with the screen.
+    /// A transparent panel larger than that would still get hover tracking over its whole area.
+    public static func panelFrame(for mode: IslandMode, anchor: NotchAnchor) -> Rect {
+        let shape = frame(of: mode, anchor: anchor)
+        return Rect(
+            x: shape.minX - panelMargin,
+            y: shape.minY - panelMargin,
+            width: shape.width + panelMargin * 2,
+            height: shape.height + panelMargin
+        )
+    }
+
     /// The fixed panel that hosts the shape.
     public static func canvas(anchor: NotchAnchor) -> Rect {
         Rect(x: anchor.centerX - canvasWidth / 2, y: anchor.top - canvasHeight, width: canvasWidth, height: canvasHeight)
