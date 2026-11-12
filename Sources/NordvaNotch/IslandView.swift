@@ -150,11 +150,7 @@ private struct PeekView: View {
     }
 
     private var detail: String {
-        if let row = hovered {
-            if row.stalled { return "\(row.project) · No activity for a while" }
-            if row.status == .done, let reply = row.reply { return "\(row.project) · \(reply)" }
-            return "\(row.project) · \(row.statusText)"
-        }
+        if let row = hovered { return TurnText.summary(of: row, now: Date()) }
         var parts: [String] = []
         let rows = model.rows
         let working = rows.filter { $0.status == .working && !$0.stalled }.count
@@ -290,6 +286,28 @@ private struct BannerView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { actions.open(row) }
                 .handCursor()
+            case .reminder(let row):
+                event(
+                    symbol: symbol(for: row),
+                    tint: Palette.color(for: row.status),
+                    title: row.title,
+                    detail: detail(for: row),
+                    trailing: TurnText.waitingFor(row, now: Date())
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { actions.open(row) }
+                .handCursor()
+            case .heavy(let row):
+                event(
+                    symbol: "flame.fill",
+                    tint: Palette.waiting,
+                    title: row.title,
+                    detail: TurnText.heavyDetail(of: row, now: Date()),
+                    trailing: row.usage.map { "≈ " + UsageText.cost($0.cost) } ?? ""
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { actions.open(row) }
+                .handCursor()
             case .timer(let minutes):
                 event(symbol: "timer", tint: Palette.done, title: "Time is up", detail: "\(minutes) min timer", trailing: TimeText.countdown(Double(minutes) * 60))
                     .contentShape(Rectangle())
@@ -327,8 +345,17 @@ private struct BannerView: View {
     }
 
     private func detail(for row: SessionRow) -> String {
-        if row.status == .done, model.showReply, let reply = row.reply { return "\(row.project) · \(reply)" }
-        return "\(row.project) · \(row.statusText)"
+        var parts = [row.project]
+        if row.status == .done || row.status == .failed {
+            if let duration = TurnText.duration(of: row, now: Date()) { parts.append(duration) }
+            if let cost = TurnText.cost(of: row) { parts.append(cost) }
+        }
+        if row.status == .done, model.showReply, let reply = row.reply {
+            parts.append(reply)
+        } else if row.status != .done {
+            parts.append(row.statusText)
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func trailing(for row: SessionRow) -> String {
@@ -460,10 +487,20 @@ private struct RowView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 6)
-            TimelineView(.periodic(from: .now, by: 30)) { context in
-                Text(TimeText.ago(context.date.timeIntervalSince(row.since)))
-                    .font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(Palette.secondary)
+            VStack(alignment: .trailing, spacing: 2) {
+                TimelineView(.periodic(from: .now, by: row.status == .working ? 1 : 30)) { context in
+                    // A working row counts the turn up; any other row says how long ago it stopped.
+                    Text(row.status == .working && !row.stalled
+                         ? TurnText.duration(of: row, now: context.date) ?? TimeText.ago(context.date.timeIntervalSince(row.since))
+                         : TimeText.ago(context.date.timeIntervalSince(row.since)))
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(row.status == .working ? Palette.working : Palette.secondary)
+                }
+                if let cost = TurnText.cost(of: row) {
+                    Text(cost)
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(Palette.secondary)
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -477,8 +514,60 @@ private struct RowView: View {
 
     private var subtitle: String {
         if row.stalled { return "\(row.project) · No activity for a while" }
-        if row.status == .done, let reply = row.reply { return "\(row.project) · \(reply)" }
+        if row.status == .done, let reply = row.reply {
+            let duration = TurnText.duration(of: row, now: Date()).map { " · " + $0 } ?? ""
+            return "\(row.project)\(duration) · \(reply)"
+        }
         return "\(row.project) · \(row.statusText)"
+    }
+}
+
+/// Short phrases about a turn: how long, how much, how many agents.
+enum TurnText {
+    static func duration(of row: SessionRow, now: Date) -> String? {
+        SessionBoard.turnSeconds(of: row.record, now: now.timeIntervalSince1970).map(UsageText.duration)
+    }
+
+    /// "≈ $0.42" at API prices; token count only when no request had a known price.
+    static func cost(of row: SessionRow) -> String? {
+        guard let usage = row.usage, usage.calls > 0 else { return nil }
+        if usage.calls == usage.unpriced { return UsageText.tokens(usage.tokens) + " tokens" }
+        return "≈ " + UsageText.cost(usage.cost)
+    }
+
+    static func agents(of row: SessionRow) -> String? {
+        guard let count = row.usage?.agents, count > 0 else { return nil }
+        return count == 1 ? "1 agent" : "\(count) agents"
+    }
+
+    /// For the pill under the pointer.
+    static func summary(of row: SessionRow, now: Date) -> String {
+        if row.stalled { return "\(row.project) · No activity for a while" }
+        var parts = [row.project]
+        let duration = Self.duration(of: row, now: now)
+        switch row.status {
+        case .working: parts.append(duration.map { "Working \($0)" } ?? "Working")
+        case .done: parts.append(duration.map { "Done in \($0)" } ?? "Done")
+        default: parts.append(row.statusText)
+        }
+        if let cost = cost(of: row) { parts.append(cost) }
+        if let agents = agents(of: row) { parts.append(agents) }
+        if row.status == .done, let reply = row.reply { parts.append(reply) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// For a reminder: how long it has been waiting or unseen.
+    static func waitingFor(_ row: SessionRow, now: Date) -> String {
+        let ago = TimeText.ago(now.timeIntervalSince(row.since))
+        return row.status == .waiting ? "Waiting \(ago)" : "Unseen \(ago)"
+    }
+
+    static func heavyDetail(of row: SessionRow, now: Date) -> String {
+        var parts = [row.project]
+        if let usage = row.usage { parts.append(UsageText.tokens(usage.tokens) + " tokens") }
+        if let agents = agents(of: row) { parts.append(agents) }
+        if let duration = duration(of: row, now: now) { parts.append(duration) }
+        return parts.joined(separator: " · ")
     }
 }
 

@@ -72,6 +72,11 @@ final class IslandController {
     private var records: [SessionRecord] = []
     private var titles: [String: String] = [:]
     private var announced: [String: Double] = [:]
+    private var usage: [String: TurnUsage] = [:]
+    /// statusSince of the status last reminded about, per session.
+    private var reminded: [String: Double] = [:]
+    /// turnStartedAt of the turn last warned about, per session.
+    private var warnedHeavy: [String: Double] = [:]
     private var seen: [String: Double]
     private let launch = Date().timeIntervalSince1970
     private var listOpen = false
@@ -161,9 +166,10 @@ final class IslandController {
 
     // MARK: Sessions
 
-    func update(records: [SessionRecord], titles: [String: String]) {
+    func update(records: [SessionRecord], titles: [String: String], usage: [String: TurnUsage] = [:]) {
         self.records = records
         self.titles = titles
+        self.usage = usage
         let alerts = SessionBoard.newAlerts(in: records, announced: announced, launch: launch)
         for alert in alerts { announced[alert.id] = alert.statusSince }
         refreshRows()
@@ -178,7 +184,43 @@ final class IslandController {
                 show(.session(row(for: latest)))
             }
         }
+        if model.banner == nil && !listOpen && !remindIfDue() {
+            warnIfHeavy()
+        }
         refreshMode()
+    }
+
+    /// A session still waiting, or a result still unseen, after the delay in Settings: say it once more.
+    @discardableResult
+    private func remindIfDue() -> Bool {
+        let due = SessionBoard.dueReminders(
+            in: records, seen: seen, reminded: reminded, now: Date().timeIntervalSince1970,
+            after: Double(prefs.remindMinutes) * 60, launch: launch
+        )
+        guard let latest = due.last else { return false }
+        // During a call it waits: the dot is already there, and the reminder comes after the call.
+        guard !shouldStayQuiet() else { return false }
+        for record in due { reminded[record.id] = record.statusSince }
+        feedback.alert(taps: 1, sound: prefs.sessionSound ? "Tink" : nil)
+        show(.reminder(row(for: latest)))
+        return true
+    }
+
+    /// A turn costing more than the limit in Settings, at API prices: warn once per turn.
+    @discardableResult
+    private func warnIfHeavy() -> Bool {
+        guard prefs.heavyTurnDollars > 0 else { return false }
+        let limit = Double(prefs.heavyTurnDollars)
+        let heavy = records.filter { record in
+            guard let start = record.turnStartedAt, let cost = usage[record.id]?.cost else { return false }
+            return cost >= limit && warnedHeavy[record.id] != start
+        }
+        guard let worst = heavy.max(by: { (usage[$0.id]?.cost ?? 0) < (usage[$1.id]?.cost ?? 0) }) else { return false }
+        guard !shouldStayQuiet() else { return false }
+        for record in heavy { warnedHeavy[record.id] = record.turnStartedAt }
+        feedback.alert(taps: 2, sound: nil)
+        show(.heavy(row(for: worst)))
+        return true
     }
 
     var sessionRows: [SessionRow] { model.rows }
@@ -195,6 +237,7 @@ final class IslandController {
             since: Date(timeIntervalSince1970: record.statusSince),
             unseen: SessionBoard.isUnseen(record, seen: seen),
             stalled: SessionBoard.isStalled(record, now: now),
+            usage: usage[record.id],
             record: record
         )
     }
@@ -208,8 +251,8 @@ final class IslandController {
         model.workingCount = records.filter { $0.status == .working && !SessionBoard.isStalled($0, now: now) }.count
         model.unseenCount = SessionBoard.unseenCount(records, seen: seen)
         model.attention = ordered.first { SessionBoard.isUnseen($0, seen: seen) }?.status
-        if case .session(let shown) = model.banner, let fresh = records.first(where: { $0.id == shown.id }) {
-            let updated = Banner.session(row(for: fresh))
+        if let banner = model.banner, let shown = banner.row, let fresh = records.first(where: { $0.id == shown.id }) {
+            let updated = banner.replacing(row(for: fresh))
             if model.banner != updated { model.banner = updated }
         }
     }
@@ -566,6 +609,37 @@ final class IslandController {
             update(records: list, titles: [:])
             openList()
             collapseWork?.cancel()
+        case "reminder", "heavy", "list-usage":
+            var waiting = fake("d2", .waiting, "Fix flaky crawler test", "\(home)/BackendProjects/seo-crawler", ago: 640,
+                               wait: .question)
+            waiting.turnStartedAt = now - 900
+            var working = fake("d1", .working, "Booking API: pagination", "\(home)/BackendProjects/booking", ago: 400)
+            working.turnStartedAt = now - 400
+            var done = fake("d4", .done, "Notch island", "\(home)/BackendProjects/NordvaNotch", ago: 120,
+                            reply: "Done. Tests pass and the new build is installed.")
+            done.turnStartedAt = now - 480
+            var heavyUsage = TurnUsage()
+            heavyUsage.calls = 412
+            heavyUsage.read = 41_000_000
+            heavyUsage.write1h = 900_000
+            heavyUsage.output = 96_000
+            heavyUsage.cost = 12.4
+            heavyUsage.agents = 6
+            var light = TurnUsage()
+            light.calls = 14
+            light.read = 1_800_000
+            light.cost = 0.62
+            update(records: [waiting, working, done], titles: [:],
+                   usage: ["d1": mode == "heavy" ? heavyUsage : light, "d4": light])
+            dismissBanner()
+            switch mode {
+            case "reminder": show(.reminder(row(for: waiting)))
+            case "heavy": show(.heavy(row(for: working)))
+            default:
+                openList()
+                collapseWork?.cancel()
+            }
+            bannerWork?.cancel()
         case "peek", "peek-hover":
             update(records: list + [fake("d4", .done, "Notch island", "\(home)/BackendProjects/NordvaNotch", ago: 300,
                                          reply: "Done. Tests pass and the new build is installed.")], titles: [:])

@@ -27,7 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if demo == "settings" { openSettings() } else { island.demo(demo) }
             return
         }
-        monitor.onChange = { [weak self] records, titles in self?.island.update(records: records, titles: titles) }
+        monitor.onChange = { [weak self] records, titles, usage in
+            self?.island.update(records: records, titles: titles, usage: usage)
+        }
         monitor.start()
     }
 

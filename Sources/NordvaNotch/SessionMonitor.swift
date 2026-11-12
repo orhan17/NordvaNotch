@@ -1,18 +1,20 @@
 import Foundation
 import NordvaNotchCore
 
-/// Watches the sessions folder the hook writes to and reads transcript titles off the main thread.
+/// Watches the sessions folder the hook writes to, and reads transcript titles and usage off the main thread.
 final class SessionMonitor {
     let store: SessionStore
-    var onChange: (([SessionRecord], [String: String]) -> Void)?
+    var onChange: (([SessionRecord], [String: String], [String: TurnUsage]) -> Void)?
 
     private var source: DispatchSourceFileSystemObject?
     private var pending = false
     private var ticker: Timer?
     private let titleQueue = DispatchQueue(label: "NordvaNotch.titles", qos: .utility)
     private var titleCache: [String: (modified: Date, title: String?)] = [:]
+    private let tracker = UsageTracker()
     private(set) var records: [SessionRecord] = []
     private(set) var titles: [String: String] = [:]
+    private(set) var usage: [String: TurnUsage] = [:]
 
     init(store: SessionStore) {
         self.store = store
@@ -28,8 +30,8 @@ final class SessionMonitor {
             source.resume()
             self.source = source
         }
-        // Relative times, stalled sessions and pruning need a slow clock as well.
-        ticker = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        // Usage, reminders, stalled sessions and pruning need a clock as well.
+        ticker = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.store.prune(now: Date().timeIntervalSince1970)
             self.reload()
@@ -50,8 +52,8 @@ final class SessionMonitor {
 
     func reload() {
         records = store.all()
-        onChange?(records, titles)
-        refreshTitles(for: records)
+        onChange?(records, titles, usage)
+        refreshDetails(for: records)
     }
 
     func remove(ids: [String]) {
@@ -59,7 +61,7 @@ final class SessionMonitor {
         reload()
     }
 
-    private func refreshTitles(for records: [SessionRecord]) {
+    private func refreshDetails(for records: [SessionRecord]) {
         let jobs = records.compactMap { record in record.transcriptPath.map { (record.id, $0) } }
         titleQueue.async { [weak self] in
             guard let self else { return }
@@ -67,10 +69,12 @@ final class SessionMonitor {
             for (id, path) in jobs {
                 if let title = self.title(atPath: path) { found[id] = title }
             }
+            let usage = self.tracker.usage(for: records, now: Date().timeIntervalSince1970)
             DispatchQueue.main.async {
-                guard found != self.titles else { return }
+                guard found != self.titles || usage != self.usage else { return }
                 self.titles = found
-                self.onChange?(self.records, found)
+                self.usage = usage
+                self.onChange?(self.records, found, usage)
             }
         }
     }

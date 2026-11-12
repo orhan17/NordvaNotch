@@ -82,6 +82,20 @@ private struct SettingsView: View {
                 Toggle("Expand when a session finishes", isOn: $prefs.popOnDone)
                 Toggle("Expand when a session needs you", isOn: $prefs.popOnWaiting)
                 Toggle("Show the last reply", isOn: $prefs.showReply)
+                Picker("Remind again after", selection: $prefs.remindMinutes) {
+                    Text("Off").tag(0)
+                    ForEach([5, 10, 15, 30], id: \.self) { Text("\($0) min").tag($0) }
+                }
+                Text("Once more, for a session that still waits for you or a result you have not opened.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("Warn when a turn costs over", selection: $prefs.heavyTurnDollars) {
+                    Text("Off").tag(0)
+                    ForEach([5, 10, 20, 50], id: \.self) { Text("$\($0)").tag($0) }
+                }
+                Text("Estimated at Anthropic API prices from the session transcript, subagents included. A subscription does not bill per token, but the same work uses up its limits.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Island") {

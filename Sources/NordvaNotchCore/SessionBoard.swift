@@ -43,6 +43,34 @@ public enum SessionBoard {
             .sorted { $0.statusSince < $1.statusSince }
     }
 
+    /// Sessions to nudge again: waiting for you, or finished and unseen, for `after` seconds.
+    /// Each status is reminded once, and only when it came due after the app started.
+    public static func dueReminders(
+        in records: [SessionRecord], seen: [String: Double], reminded: [String: Double],
+        now: Double, after: Double, launch: Double
+    ) -> [SessionRecord] {
+        guard after > 0 else { return [] }
+        return records
+            .filter { record in
+                let waiting = record.status == .waiting
+                let unseenResult = (record.status == .done || record.status == .failed) && isUnseen(record, seen: seen)
+                guard waiting || unseenResult else { return false }
+                let due = record.statusSince + after
+                return due <= now && due >= launch && reminded[record.id] != record.statusSince
+            }
+            .sorted { $0.statusSince < $1.statusSince }
+    }
+
+    /// How long the current turn has run, or ran: up to now while working, up to the stop otherwise.
+    public static func turnSeconds(of record: SessionRecord, now: Double) -> Double? {
+        guard let start = record.turnStartedAt else { return nil }
+        switch record.status {
+        case .working: return now - start
+        case .done, .failed, .waiting: return max(0, record.statusSince - start)
+        case .idle: return nil
+        }
+    }
+
     public static func unseenCount(_ records: [SessionRecord], seen: [String: Double]) -> Int {
         records.filter { isUnseen($0, seen: seen) }.count
     }

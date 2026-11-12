@@ -35,6 +35,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     public var entrypoint: String?
     public var hostSessionID: String?
     public var hostBundleID: String?
+    /// When the current turn began: the last prompt. Its duration and usage are measured from here.
+    public var turnStartedAt: Double?
     public var createdAt: Double
     public var updatedAt: Double
     /// When `status` (or the reason for waiting) last changed; the app alerts once per value.
@@ -79,6 +81,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
             record.waitReason = nil
             record.detail = nil
             record.reply = nil
+            record.turnStartedAt = now
             if let prompt = event.prompt { record.prompt = clip(prompt, to: promptLimit) }
         case .preToolUse:
             switch event.toolName {

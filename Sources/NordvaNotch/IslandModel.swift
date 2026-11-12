@@ -11,12 +11,33 @@ struct SessionRow: Identifiable, Equatable {
     var since: Date
     var unseen: Bool
     var stalled: Bool
+    var usage: TurnUsage?
     var record: SessionRecord
 }
 
 enum Banner: Equatable {
     case session(SessionRow)
+    /// The same session again: still waiting, or finished and still unseen.
+    case reminder(SessionRow)
+    /// A turn that went past the cost limit in Settings.
+    case heavy(SessionRow)
     case timer(minutes: Int)
+
+    var row: SessionRow? {
+        switch self {
+        case .session(let row), .reminder(let row), .heavy(let row): return row
+        case .timer: return nil
+        }
+    }
+
+    func replacing(_ row: SessionRow) -> Banner {
+        switch self {
+        case .session: return .session(row)
+        case .reminder: return .reminder(row)
+        case .heavy: return .heavy(row)
+        case .timer: return self
+        }
+    }
 }
 
 /// Everything the SwiftUI view draws. The controller owns the logic and writes here.

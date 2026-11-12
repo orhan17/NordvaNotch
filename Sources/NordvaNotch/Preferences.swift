@@ -31,6 +31,10 @@ final class Preferences: ObservableObject {
     @Published var quietDuringCalls: Bool { didSet { save(quietDuringCalls, "quietDuringCalls") } }
     @Published var timerEnabled: Bool { didSet { save(timerEnabled, "timerEnabled") } }
     @Published var showWorking: Bool { didSet { save(showWorking, "showWorking") } }
+    /// Minutes before a waiting session or an unseen result is announced again; 0 is off.
+    @Published var remindMinutes: Int { didSet { save(remindMinutes, "remindMinutes") } }
+    /// Dollars at API prices that make a turn worth a warning; 0 is off.
+    @Published var heavyTurnDollars: Int { didSet { save(heavyTurnDollars, "heavyTurnDollars") } }
 
     init() {
         defaults.register(defaults: [
@@ -48,6 +52,8 @@ final class Preferences: ObservableObject {
             "quietDuringCalls": true,
             "timerEnabled": false,
             "showWorking": true,
+            "remindMinutes": 10,
+            "heavyTurnDollars": 10,
         ])
         placement = Placement(rawValue: defaults.string(forKey: "placement") ?? "") ?? .notch
         popOnDone = defaults.bool(forKey: "popOnDone")
@@ -63,6 +69,8 @@ final class Preferences: ObservableObject {
         quietDuringCalls = defaults.bool(forKey: "quietDuringCalls")
         timerEnabled = defaults.bool(forKey: "timerEnabled")
         showWorking = defaults.bool(forKey: "showWorking")
+        remindMinutes = defaults.integer(forKey: "remindMinutes")
+        heavyTurnDollars = defaults.integer(forKey: "heavyTurnDollars")
     }
 
     /// Seen marks survive restarts, otherwise every finished session would light up again.
