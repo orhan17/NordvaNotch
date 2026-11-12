@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import NordvaNotchCore
 import SwiftUI
 
@@ -19,7 +20,10 @@ final class IslandPanel: NSPanel {
         animationBehavior = .none
     }
 
-    override var canBecomeKey: Bool { false }
+    /// Only while the list is open from the keyboard: arrows and Return then reach it,
+    /// without activating the app or taking the focus away for longer.
+    var allowsKey = false
+    override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { false }
 
     // Borderless windows are still pushed below the menu bar unless this is overridden.
@@ -89,6 +93,11 @@ final class IslandController {
     private var seen: [String: Double]
     private let launch = Date().timeIntervalSince1970
     private var listOpen = false
+    /// The list was opened with the shortcut and takes arrows, Return and Escape.
+    private var keyboardList = false
+    /// The five-hour window being watched and the highest it got, to say when a busy one resets.
+    private var watchedWindow: (resetsAt: Double, peak: Double)?
+    private var resetToAnnounce: Double?
     private var peekOpen = false
     private var hoverWork: DispatchWorkItem?
     private var peekCollapseWork: DispatchWorkItem?
@@ -134,6 +143,11 @@ final class IslandController {
         if let m = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { [weak self] event in
             self?.pointerMoved()
             return event
+        }) {
+            monitors.append(m)
+        }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            self?.handleKey(event) == true ? nil : event
         }) {
             monitors.append(m)
         }
@@ -194,6 +208,7 @@ final class IslandController {
         set(\.fiveHour, usage.fiveHour)
         set(\.sevenDay, usage.limits?.active(usage.limits?.sevenDay, now: now))
         perDollar = usage.perDollar
+        watchWindow(now: now)
         let alerts = SessionBoard.newAlerts(in: records, announced: announced, launch: launch)
         for alert in alerts { announced[alert.id] = alert.statusSince }
         refreshRows()
@@ -209,7 +224,7 @@ final class IslandController {
             }
         }
         if model.banner == nil && !listOpen {
-            _ = remindIfDue() || warnIfHeavy() || warnIfWindowHeavy() || warnIfContextFull()
+            _ = remindIfDue() || announceReset() || warnIfHeavy() || warnIfWindowHeavy() || warnIfContextFull()
         }
         refreshMode()
     }
@@ -281,7 +296,11 @@ final class IslandController {
         // layout pass; this runs every 15 seconds, so only real changes are written.
         set(\.rows, rows)
         set(\.hiddenCount, max(0, ordered.count - rows.count))
-        set(\.workingCount, records.filter { $0.status == .working && !SessionBoard.isStalled($0, now: now) }.count)
+        // A finished turn whose agents still run is still work in progress; long-lived commands are not.
+        set(\.workingCount, records.filter {
+            ($0.status == .working && !SessionBoard.isStalled($0, now: now))
+                || ($0.status == .done && ($0.backgroundAgents ?? 0) > 0 && now - $0.statusSince < SessionBoard.stalledAfter)
+        }.count)
         set(\.unseenCount, SessionBoard.unseenCount(records, seen: seen))
         set(\.attention, ordered.first { SessionBoard.isUnseen($0, seen: seen) }?.status)
         if let banner = model.banner, let shown = banner.row, let fresh = records.first(where: { $0.id == shown.id }) {
@@ -328,6 +347,39 @@ final class IslandController {
 
     // MARK: Modes
 
+    /// The shortcut: opens the list for the keyboard, or closes it.
+    func toggleListFromKeyboard() {
+        if listOpen {
+            closeList()
+            return
+        }
+        openList()
+        collapseWork?.cancel()
+        keyboardList = true
+        model.selectedRow = model.rows.isEmpty ? nil : 0
+        panel.allowsKey = true
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    /// Arrows move, Return opens, Escape closes. Only while the list is open from the keyboard.
+    private func handleKey(_ event: NSEvent) -> Bool {
+        guard listOpen, keyboardList else { return false }
+        let count = model.rows.count
+        switch Int(event.keyCode) {
+        case kVK_Escape:
+            closeList()
+        case kVK_DownArrow where count > 0:
+            model.selectedRow = min(count - 1, (model.selectedRow ?? -1) + 1)
+        case kVK_UpArrow where count > 0:
+            model.selectedRow = max(0, (model.selectedRow ?? count) - 1)
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            if let index = model.selectedRow, model.rows.indices.contains(index) { open(model.rows[index]) }
+        default:
+            return false
+        }
+        return true
+    }
+
     func openList() {
         bannerWork?.cancel()
         hoverWork?.cancel()
@@ -347,6 +399,12 @@ final class IslandController {
         guard listOpen else { return }
         collapseWork?.cancel()
         listOpen = false
+        if keyboardList {
+            keyboardList = false
+            model.selectedRow = nil
+            panel.allowsKey = false
+            panel.resignKey()
+        }
         markSeen(model.rows.map(\.id))
         refreshMode()
     }
@@ -445,6 +503,29 @@ final class IslandController {
         return attention || working
     }
 
+    /// When a five-hour window that got past 70% resets, the next message is the time to carry on.
+    static let busyWindow = 70.0
+
+    private func watchWindow(now: Double) {
+        if let watched = watchedWindow, now >= watched.resetsAt {
+            if watched.peak >= Self.busyWindow { resetToAnnounce = watched.peak }
+            watchedWindow = nil
+        }
+        if let five = model.fiveHour, five.resetsAt > now {
+            let peak = watchedWindow?.resetsAt == five.resetsAt ? max(watchedWindow?.peak ?? 0, five.percent) : five.percent
+            watchedWindow = (five.resetsAt, peak)
+        }
+    }
+
+    private func announceReset() -> Bool {
+        guard let peak = resetToAnnounce, prefs.resetNotice else { return false }
+        resetToAnnounce = nil
+        guard !shouldStayQuiet() else { return false }
+        feedback.alert(taps: 1, sound: nil)
+        show(.limitReset(peak: peak, week: model.sevenDay))
+        return true
+    }
+
     /// All sessions together past the five-hour limit in Settings: one warning until it eases off.
     private func warnIfWindowHeavy() -> Bool {
         if snapshot.limits != nil {
@@ -522,7 +603,8 @@ final class IslandController {
         trackPeek(inside: inside, at: p)
         guard model.hovering != inside else { return }
         model.hovering = inside
-        if listOpen {
+        // Opened with the shortcut, the list stays until Escape, the shortcut or a click elsewhere.
+        if listOpen && !keyboardList {
             if inside { collapseWork?.cancel() } else { scheduleCollapse(after: 0.7) }
         }
     }
@@ -747,7 +829,7 @@ final class IslandController {
             update(records: list, titles: [:])
             openList()
             collapseWork?.cancel()
-        case "reminder", "heavy", "list-usage", "window", "context", "plan-limit":
+        case "reminder", "heavy", "list-usage", "window", "context", "plan-limit", "reset", "keyboard":
             var waiting = fake("d2", .waiting, "Fix flaky crawler test", "\(home)/BackendProjects/seo-crawler", ago: 640,
                                wait: .question)
             waiting.turnStartedAt = now - 900
@@ -756,6 +838,7 @@ final class IslandController {
             var done = fake("d4", .done, "Notch island", "\(home)/BackendProjects/NordvaNotch", ago: 120,
                             reply: "Done. Tests pass and the new build is installed.")
             done.turnStartedAt = now - 480
+            done.backgroundAgents = 2
             var heavyUsage = TurnUsage()
             heavyUsage.calls = 412
             heavyUsage.read = 41_000_000
@@ -784,6 +867,10 @@ final class IslandController {
             case "heavy": show(.heavy(row(for: working)))
             case "window": show(.window(cost: 152))
             case "plan-limit": show(.planLimit(model.fiveHour!, week: model.sevenDay))
+            case "reset": show(.limitReset(peak: 86, week: model.sevenDay))
+            case "keyboard":
+                toggleListFromKeyboard()
+                model.selectedRow = 1
             case "context": show(.context(row(for: working)))
             default:
                 openList()

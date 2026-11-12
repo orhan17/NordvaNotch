@@ -42,7 +42,7 @@ public enum SessionNaming {
         switch record.status {
         case .idle: return "Ready"
         case .working: return "Working"
-        case .done: return "Finished"
+        case .done: return backgroundText(of: record).map { "Finished · \($0)" } ?? "Finished"
         case .failed: return record.detail.map { "Failed: \($0)" } ?? "Failed"
         case .waiting:
             switch record.waitReason {
@@ -52,6 +52,19 @@ public enum SessionNaming {
             case .input, .none: return "Waits for you"
             }
         }
+    }
+}
+
+extension SessionNaming {
+    /// "2 agents still running", "1 agent and 1 command still running"; nil when nothing runs.
+    public static func backgroundText(of record: SessionRecord) -> String? {
+        let agents = record.backgroundAgents ?? 0
+        let commands = record.backgroundCommands ?? 0
+        guard agents + commands > 0 else { return nil }
+        var parts: [String] = []
+        if agents > 0 { parts.append(agents == 1 ? "1 agent" : "\(agents) agents") }
+        if commands > 0 { parts.append(commands == 1 ? "1 command" : "\(commands) commands") }
+        return parts.joined(separator: " and ") + " still running"
     }
 }
 

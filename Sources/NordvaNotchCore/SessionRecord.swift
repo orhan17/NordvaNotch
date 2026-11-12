@@ -37,6 +37,9 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     public var hostBundleID: String?
     /// When the current turn began: the last prompt. Its duration and usage are measured from here.
     public var turnStartedAt: Double?
+    /// Agents and commands still running when the turn ended, from Stop.
+    public var backgroundAgents: Int?
+    public var backgroundCommands: Int?
     public var createdAt: Double
     public var updatedAt: Double
     /// When `status` (or the reason for waiting) last changed; the app alerts once per value.
@@ -82,6 +85,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
             record.detail = nil
             record.reply = nil
             record.turnStartedAt = now
+            record.backgroundAgents = nil
+            record.backgroundCommands = nil
             if let prompt = event.prompt { record.prompt = clip(prompt, to: promptLimit) }
         case .preToolUse:
             switch event.toolName {
@@ -142,6 +147,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
             record.waitReason = nil
             record.detail = nil
             record.reply = event.lastAssistantMessage.map { clip($0, to: replyLimit) }
+            record.backgroundAgents = event.background.map(\.agents)
+            record.backgroundCommands = event.background.map(\.commands)
         case .stopFailure:
             record.status = .failed
             record.waitReason = nil

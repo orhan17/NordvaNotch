@@ -96,6 +96,7 @@ private struct SettingsView: View {
                         Text("Off").tag(0)
                         ForEach([70, 80, 90], id: \.self) { Text("\($0)%").tag($0) }
                     }
+                    Toggle("Tell me when a busy five hours reset", isOn: $prefs.resetNotice)
                     Picker("Warn when one turn uses", selection: $prefs.heavyTurnPercent) {
                         Text("Off").tag(0)
                         ForEach([5, 10, 20, 30], id: \.self) { Text("\($0)% of 5h").tag($0) }
@@ -132,6 +133,12 @@ private struct SettingsView: View {
                 LabeledContent("Keep an event open") {
                     Stepper("\(Int(prefs.bannerSeconds)) s", value: $prefs.bannerSeconds, in: 3...20, step: 1)
                 }
+                Picker("Open the list with", selection: $prefs.shortcut) {
+                    ForEach(HotKey.Shortcut.allCases) { Text($0.title).tag($0) }
+                }
+                Text("Arrows pick a session, Return opens it, Escape closes the list.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("Spinner next to the notch while sessions work", isOn: $prefs.showWorking)
                 Toggle("Dot and count next to the notch until you look", isOn: $prefs.compactIndicators)
             }

@@ -163,7 +163,7 @@ private struct PeekView: View {
         if failed > 0 { parts.append("\(failed) failed") }
         let more = model.rows.count - pills.count + model.hiddenCount
         if more > 0 { parts.append("+\(more) more") }
-        if let limits = TurnText.limits(model) { parts.append(limits.short) }
+        if let limits = TurnText.limits(model) { parts.append(limits.text) }
         return parts.isEmpty ? "Click for all sessions" : parts.joined(separator: " · ")
     }
 
@@ -332,6 +332,17 @@ private struct BannerView: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: actions.openList)
                 .handCursor()
+            case .limitReset(let peak, let week):
+                event(
+                    symbol: "arrow.clockwise",
+                    tint: Palette.done,
+                    title: "Five-hour limit reset",
+                    detail: "It got to \(Int(peak.rounded()))%" + (week.map { " · week \(Int($0.percent.rounded()))%" } ?? ""),
+                    trailing: "Fresh"
+                )
+                .contentShape(Rectangle())
+                .onTapGesture(perform: actions.dismissBanner)
+                .handCursor()
             case .context(let row):
                 event(
                     symbol: "gauge.with.dots.needle.67percent",
@@ -384,6 +395,7 @@ private struct BannerView: View {
         if row.status == .done || row.status == .failed {
             if let duration = TurnText.duration(of: row, now: Date()) { parts.append(duration) }
             if let cost = TurnText.cost(of: row) { parts.append(cost) }
+            if let background = SessionNaming.backgroundText(of: row.record) { parts.append(background) }
         }
         if row.status == .done, model.showReply, let reply = row.reply {
             parts.append(reply)
@@ -435,9 +447,12 @@ private struct ListView: View {
         VStack(spacing: 0) {
             Band(model: model) {
                 if let limits = TurnText.limits(model) {
-                    Text(limits.text)
+                    // Only the five hours fit beside the notch; the week is in the tooltip and the peek strip.
+                    Text(limits.short)
                         .font(.system(size: 11, weight: .medium).monospacedDigit())
                         .foregroundStyle(limits.warn ? Palette.waiting : Palette.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
                         .help(limits.help)
                 }
                 Button(action: actions.openSettings) {
@@ -459,7 +474,8 @@ private struct ListView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(model.rows) { row in
-                        RowView(row: row, warnPercent: model.contextWarnPercent) { actions.open(row) }
+                        RowView(row: row, warnPercent: model.contextWarnPercent,
+                                selected: model.selectedRow == model.rows.firstIndex(of: row)) { actions.open(row) }
                             .frame(height: IslandLayout.rowHeight)
                     }
                 }
@@ -503,6 +519,7 @@ private struct ListView: View {
 private struct RowView: View {
     let row: SessionRow
     let warnPercent: Int
+    var selected = false
     let action: () -> Void
     @State private var hover = false
 
@@ -542,7 +559,7 @@ private struct RowView: View {
         }
         .padding(.horizontal, 10)
         .frame(maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hover ? Palette.hover : .clear))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hover || selected ? Palette.hover : .clear))
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
         .onHover { hover = $0 }
@@ -561,7 +578,9 @@ private struct RowView: View {
         if row.stalled { return plain("\(row.project) · No activity for a while") }
         if row.status == .done, let reply = row.reply {
             let duration = TurnText.duration(of: row, now: Date()).map { " · " + $0 } ?? ""
-            return plain("\(row.project)\(duration)") + contextText + plain(" · \(reply)")
+            let background = SessionNaming.backgroundText(of: row.record)
+                .map { Text(" · " + $0).foregroundColor(Palette.working) } ?? Text("")
+            return plain("\(row.project)\(duration)") + background + contextText + plain(" · \(reply)")
         }
         return plain("\(row.project) · \(row.statusText)") + contextText
     }
@@ -615,7 +634,9 @@ enum TurnText {
         let duration = Self.duration(of: row, now: now)
         switch row.status {
         case .working: parts.append(duration.map { "Working \($0)" } ?? "Working")
-        case .done: parts.append(duration.map { "Done in \($0)" } ?? "Done")
+        case .done:
+            parts.append(duration.map { "Done in \($0)" } ?? "Done")
+            if let background = SessionNaming.backgroundText(of: row.record) { parts.append(background) }
         default: parts.append(row.statusText)
         }
         if let cost = row.costLong { parts.append(cost) }

@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var island = IslandController(prefs: prefs, feedback: feedback)
     private let monitor = SessionMonitor(store: SessionStore(directory: SessionStore.defaultDirectory))
     private var statusItem: NSStatusItem?
+    private var hotKey: HotKey?
+    private var hotKeyShortcut: HotKey.Shortcut?
     private lazy var settingsWindow = SettingsWindowController(prefs: prefs, preview: { [weak self] in self?.island.preview() })
 
     init(demo: String?) {
@@ -35,6 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func applyPreferences() {
         island.applyPreferences()
+        if hotKeyShortcut != prefs.shortcut, demo == nil {
+            hotKey = nil
+            hotKey = HotKey(prefs.shortcut) { [weak self] in self?.island.toggleListFromKeyboard() }
+            hotKeyShortcut = prefs.shortcut
+            if prefs.shortcut != .off {
+                NSLog("NordvaNotch: shortcut %@ %@", prefs.shortcut.title, hotKey == nil ? "could not be registered" : "registered")
+            }
+        }
         if prefs.menuBarIcon, statusItem == nil {
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
             item.button?.image = Self.menuBarImage()

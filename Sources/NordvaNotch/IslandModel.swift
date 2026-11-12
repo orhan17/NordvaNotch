@@ -30,6 +30,8 @@ enum Banner: Equatable {
     /// the plan's percentage, or the cost at API prices without a plan.
     case window(cost: Double)
     case planLimit(LimitEstimate, week: PlanLimits.Window?)
+    /// A busy five-hour window has reset: carry on.
+    case limitReset(peak: Double, week: PlanLimits.Window?)
     /// A session whose context is nearly full: compaction is near.
     case context(SessionRow)
     case timer(minutes: Int)
@@ -37,7 +39,7 @@ enum Banner: Equatable {
     var row: SessionRow? {
         switch self {
         case .session(let row), .reminder(let row), .heavy(let row), .context(let row): return row
-        case .timer, .window, .planLimit: return nil
+        case .timer, .window, .planLimit, .limitReset: return nil
         }
     }
 
@@ -47,7 +49,7 @@ enum Banner: Equatable {
         case .reminder: return .reminder(row)
         case .heavy: return .heavy(row)
         case .context: return .context(row)
-        case .timer, .window, .planLimit: return self
+        case .timer, .window, .planLimit, .limitReset: return self
         }
     }
 }
@@ -67,6 +69,8 @@ final class IslandModel: ObservableObject {
     @Published var hovering = false
     /// The pill under the pointer while the peek strip is out.
     @Published var peekHover: Int?
+    /// The row picked with the arrow keys when the list is open from the keyboard.
+    @Published var selectedRow: Int?
     @Published var timerEnd: Date?
     @Published var timerMinutes = 0
     /// A spinner and a count next to the notch while sessions work.

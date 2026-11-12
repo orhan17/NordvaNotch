@@ -158,6 +158,29 @@ private let sid = "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b"
         }
     }
 
+    @Test func stopKeepsWhatIsStillRunningAndAPromptClearsIt() {
+        let stop = event(#"""
+        {"session_id":"\#(sid)","hook_event_name":"Stop","background_tasks":[
+          {"id":"t1","type":"subagent","status":"running","description":"review","agent_type":"Explore"},
+          {"id":"t2","type":"workflow","status":"running","description":"fan out","name":"wf"},
+          {"id":"t3","type":"shell","status":"running","description":"build","command":"swift build"}],
+         "session_crons":[]}
+        """#)
+        let done = written(SessionRecord.apply(stop, to: start(), at: 130))
+        #expect(done.backgroundAgents == 2)
+        #expect(done.backgroundCommands == 1)
+        #expect(SessionNaming.statusText(of: done) == "Finished · 2 agents and 1 command still running")
+
+        let back = event(#"{"session_id":"\#(sid)","hook_event_name":"UserPromptSubmit","prompt":"agent result"}"#)
+        let working = written(SessionRecord.apply(back, to: done, at: 140))
+        #expect(working.backgroundAgents == nil)
+
+        let quiet = event(#"{"session_id":"\#(sid)","hook_event_name":"Stop","background_tasks":[]}"#)
+        #expect(SessionNaming.statusText(of: written(SessionRecord.apply(quiet, to: working, at: 150))) == "Finished")
+        let older = event(#"{"session_id":"\#(sid)","hook_event_name":"Stop"}"#)
+        #expect(SessionNaming.statusText(of: written(SessionRecord.apply(older, to: working, at: 150))) == "Finished")
+    }
+
     @Test func otherNotificationsAreIgnored() {
         let note = event(#"{"session_id":"\#(sid)","hook_event_name":"Notification","notification_type":"auth_success"}"#)
         #expect(SessionRecord.apply(note, to: start(), at: 110) == .ignore)

@@ -41,6 +41,9 @@ final class Preferences: ObservableObject {
     @Published var limitWarnPercent: Int { didSet { save(limitWarnPercent, "limitWarnPercent") } }
     /// On a plan: one turn's share of the five-hour limit that deserves a warning; 0 is off.
     @Published var heavyTurnPercent: Int { didSet { save(heavyTurnPercent, "heavyTurnPercent") } }
+    /// Say when a five-hour window that got past 70% resets.
+    @Published var resetNotice: Bool { didSet { save(resetNotice, "resetNotice") } }
+    @Published var shortcut: HotKey.Shortcut { didSet { save(shortcut.rawValue, "shortcut") } }
     /// Context fill, in percent, that deserves a warning; 0 is off.
     @Published var contextWarnPercent: Int { didSet { save(contextWarnPercent, "contextWarnPercent") } }
 
@@ -65,6 +68,8 @@ final class Preferences: ObservableObject {
             "windowDollars": 150,
             "limitWarnPercent": 80,
             "heavyTurnPercent": 10,
+            "resetNotice": true,
+            "shortcut": HotKey.Shortcut.optionCommandL.rawValue,
             "contextWarnPercent": 85,
         ])
         placement = Placement(rawValue: defaults.string(forKey: "placement") ?? "") ?? .notch
@@ -86,6 +91,8 @@ final class Preferences: ObservableObject {
         windowDollars = defaults.integer(forKey: "windowDollars")
         limitWarnPercent = defaults.integer(forKey: "limitWarnPercent")
         heavyTurnPercent = defaults.integer(forKey: "heavyTurnPercent")
+        resetNotice = defaults.bool(forKey: "resetNotice")
+        shortcut = HotKey.Shortcut(rawValue: defaults.string(forKey: "shortcut") ?? "") ?? .optionCommandL
         contextWarnPercent = defaults.integer(forKey: "contextWarnPercent")
     }
 

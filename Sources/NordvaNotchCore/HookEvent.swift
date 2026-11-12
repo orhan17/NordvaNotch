@@ -1,7 +1,7 @@
 import Foundation
 
 /// One Claude Code hook call: the JSON on stdin plus the bits of the environment we care about.
-public struct HookEvent: Equatable, Sendable {
+public struct HookEvent: Sendable {
     public enum Kind: String, Sendable, CaseIterable {
         case sessionStart = "SessionStart"
         case userPromptSubmit = "UserPromptSubmit"
@@ -29,6 +29,8 @@ public struct HookEvent: Equatable, Sendable {
     public var error: String?
     /// Set when the event comes from a subagent rather than the main conversation.
     public var agentID: String?
+    /// From Stop: work still running after the turn ended, as (agents, commands).
+    public var background: (agents: Int, commands: Int)?
     public var entrypoint: String?
     public var hostSessionID: String?
     public var hostBundleID: String?
@@ -65,6 +67,12 @@ public struct HookEvent: Equatable, Sendable {
         event.source = text("source") ?? text("reason")
         event.error = text("error") ?? text("error_message") ?? text("error_type")
         event.agentID = text("agent_id")
+        if let tasks = payload["background_tasks"] as? [[String: Any]] {
+            // Subagents, workflows, teammates and cloud sessions are agents; shells, monitors and MCP tasks are commands.
+            let agentTypes: Set<String> = ["subagent", "workflow", "teammate", "cloud session"]
+            let agents = tasks.filter { agentTypes.contains(($0["type"] as? String ?? "").lowercased()) }.count
+            event.background = (agents, tasks.count - agents)
+        }
         event.entrypoint = environment["CLAUDE_CODE_ENTRYPOINT"].flatMap { $0.isEmpty ? nil : $0 }
         event.hostSessionID = environment["CLAUDE_CODE_HOST_SESSION_ID"].flatMap { $0.isEmpty ? nil : $0 }
         event.hostBundleID = environment["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
