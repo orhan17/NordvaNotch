@@ -468,7 +468,7 @@ private struct BannerView: View {
             if let cost = TurnText.cost(of: row) { parts.append(cost) }
             if let background = SessionNaming.backgroundText(of: row.record) { parts.append(background) }
         }
-        if row.status == .done, model.showReply, let reply = row.reply {
+        if row.status == .done, model.bannerDetail != .none, let reply = row.reply {
             parts.append(SessionText.oneLine(reply))
         } else if row.status != .done {
             parts.append(row.statusText)

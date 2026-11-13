@@ -67,7 +67,7 @@ final class IslandModel: ObservableObject {
     /// The most urgent unseen status, for the dot in the compact wing.
     @Published var attention: SessionStatus?
     @Published var banner: Banner?
-    @Published var showReply = true
+    @Published var bannerDetail = Preferences.BannerDetail.full
     @Published var hovering = false
     /// The pill under the pointer while the peek strip is out.
     @Published var peekHover: Int?

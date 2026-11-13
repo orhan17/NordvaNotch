@@ -59,6 +59,14 @@ private struct SettingsView: View {
     /// Claude Code has reported plan limits through the status line at least once.
     private var onPlan: Bool { FileManager.default.fileExists(atPath: PlanLimits.defaultPath) }
 
+    private var bannerDetailNote: String {
+        switch prefs.bannerDetail {
+        case .full: return "The banner grows: time, limit and context, your prompt and up to four lines of the reply."
+        case .line: return "One line: the project, time and the start of the reply."
+        case .none: return "The project and time only."
+        }
+    }
+
     var body: some View {
         Form {
             Section("Claude Code") {
@@ -83,7 +91,12 @@ private struct SettingsView: View {
                 }
                 Toggle("Expand when a session finishes", isOn: $prefs.popOnDone)
                 Toggle("Expand when a session needs you", isOn: $prefs.popOnWaiting)
-                Toggle("Show the last reply", isOn: $prefs.showReply)
+                Picker("A finished turn shows", selection: $prefs.bannerDetail) {
+                    ForEach(Preferences.BannerDetail.allCases) { Text($0.title).tag($0) }
+                }
+                Text(bannerDetailNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Picker("Remind again after", selection: $prefs.remindMinutes) {
                     Text("Off").tag(0)
                     ForEach([5, 10, 15, 30], id: \.self) { Text("\($0) min").tag($0) }

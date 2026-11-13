@@ -117,7 +117,7 @@ final class IslandController {
         self.prefs = prefs
         self.feedback = feedback
         seen = prefs.seen
-        model.showReply = prefs.showReply
+        model.bannerDetail = prefs.bannerDetail
     }
 
     func start() {
@@ -163,7 +163,7 @@ final class IslandController {
     }
 
     func applyPreferences() {
-        set(\.showReply, prefs.showReply)
+        set(\.bannerDetail, prefs.bannerDetail)
         set(\.timerEnabled, prefs.timerEnabled)
         set(\.showWorking, prefs.showWorking)
         set(\.contextWarnPercent, prefs.contextWarnPercent)
@@ -469,7 +469,7 @@ final class IslandController {
 
     /// Lines under a finished turn's banner: the prompt, then as much of the reply as fits in four.
     private func bannerLines() -> Int {
-        guard prefs.showReply, let banner = model.banner else { return 0 }
+        guard prefs.bannerDetail == .full, let banner = model.banner else { return 0 }
         let row: SessionRow
         switch banner {
         case .session(let shown), .reminder(let shown): row = shown

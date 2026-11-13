@@ -14,13 +14,29 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// How much a finished turn's banner shows.
+    enum BannerDetail: String, CaseIterable, Identifiable {
+        case full
+        case line
+        case none
+
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .full: return "Prompt and reply"
+            case .line: return "One line"
+            case .none: return "No reply"
+            }
+        }
+    }
+
     private let defaults = UserDefaults.standard
     var onChange: (() -> Void)?
 
     @Published var placement: Placement { didSet { save(placement.rawValue, "placement") } }
     @Published var popOnDone: Bool { didSet { save(popOnDone, "popOnDone") } }
     @Published var popOnWaiting: Bool { didSet { save(popOnWaiting, "popOnWaiting") } }
-    @Published var showReply: Bool { didSet { save(showReply, "showReply") } }
+    @Published var bannerDetail: BannerDetail { didSet { save(bannerDetail.rawValue, "bannerDetail") } }
     @Published var bannerSeconds: Double { didSet { save(bannerSeconds, "bannerSeconds") } }
     @Published var haptics: Bool { didSet { save(haptics, "haptics") } }
     @Published var sessionSound: Bool { didSet { save(sessionSound, "sessionSound") } }
@@ -75,7 +91,9 @@ final class Preferences: ObservableObject {
         placement = Placement(rawValue: defaults.string(forKey: "placement") ?? "") ?? .notch
         popOnDone = defaults.bool(forKey: "popOnDone")
         popOnWaiting = defaults.bool(forKey: "popOnWaiting")
-        showReply = defaults.bool(forKey: "showReply")
+        // Before the choice there was a "Show the last reply" switch; off stays off.
+        bannerDetail = BannerDetail(rawValue: defaults.string(forKey: "bannerDetail") ?? "")
+            ?? (defaults.bool(forKey: "showReply") ? .full : .none)
         bannerSeconds = defaults.double(forKey: "bannerSeconds")
         haptics = defaults.bool(forKey: "haptics")
         sessionSound = defaults.bool(forKey: "sessionSound")
