@@ -7,7 +7,9 @@ struct SessionRow: Identifiable, Equatable {
     var project: String
     var status: SessionStatus
     var statusText: String
+    /// The reply as plain lines, and the prompt that started the turn.
     var reply: String?
+    var prompt: String?
     var since: Date
     var unseen: Bool
     var stalled: Bool

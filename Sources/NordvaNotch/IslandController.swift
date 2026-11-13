@@ -277,7 +277,8 @@ final class IslandController {
             project: SessionNaming.projectName(cwd: record.cwd, home: NSHomeDirectory()),
             status: record.status,
             statusText: SessionNaming.statusText(of: record),
-            reply: record.reply,
+            reply: record.reply.flatMap { SessionText.reply($0, limit: 600) },
+            prompt: record.prompt.flatMap(SessionText.prompt),
             since: Date(timeIntervalSince1970: record.statusSince),
             unseen: SessionBoard.isUnseen(record, seen: seen),
             stalled: SessionBoard.isStalled(record, now: now),
@@ -307,7 +308,10 @@ final class IslandController {
         set(\.attention, ordered.first { SessionBoard.isUnseen($0, seen: seen) }?.status)
         if let banner = model.banner, let shown = banner.row, let fresh = records.first(where: { $0.id == shown.id }) {
             let updated = banner.replacing(row(for: fresh))
-            if model.banner != updated { model.banner = updated }
+            if model.banner != updated {
+                model.banner = updated
+                refreshMode()
+            }
         }
     }
 
@@ -463,12 +467,25 @@ final class IslandController {
         refreshMode()
     }
 
+    /// Lines under a finished turn's banner: the prompt, then as much of the reply as fits in four.
+    private func bannerLines() -> Int {
+        guard prefs.showReply, let banner = model.banner else { return 0 }
+        let row: SessionRow
+        switch banner {
+        case .session(let shown), .reminder(let shown): row = shown
+        default: return 0
+        }
+        guard row.status == .done else { return 0 }
+        let reply = row.reply.map(BannerText.lineCount) ?? 0
+        return (row.prompt == nil ? 0 : 1) + reply
+    }
+
     private func refreshMode() {
         let mode: IslandMode
         if listOpen {
             mode = .list(rows: model.rows.count, timer: prefs.timerEnabled)
         } else if model.banner != nil {
-            mode = .banner
+            mode = .banner(lines: bannerLines())
         } else if peekOpen {
             mode = .peek(pills: min(model.rows.count, IslandLayout.maxPills))
         } else if compactWanted {
@@ -818,7 +835,8 @@ final class IslandController {
     func preview() {
         var record = SessionRecord(id: "preview", status: .done, cwd: NSHomeDirectory() + "/Projects/NordvaNotch", at: Date().timeIntervalSince1970)
         record.title = "Notch island"
-        record.reply = "Done. Tests pass and the new build is installed."
+        record.prompt = "Show more of the reply when a session is done"
+        record.reply = "**Done.** Tests pass and the new build is installed.\n\n- The banner shows what you asked and more of the reply\n- Markdown is stripped, so it reads as plain text\n- Replies keep their line breaks"
         feedback.alert(taps: 1, sound: prefs.sessionSound ? "Tink" : nil)
         show(.session(row(for: record)))
     }
@@ -919,10 +937,12 @@ final class IslandController {
         case "timer":
             startTimer(minutes: 25)
         default:
-            update(records: list + [fake(
+            var finished = fake(
                 "d4", .done, "Notch island", "\(home)/BackendProjects/NordvaNotch", ago: -2,
-                reply: "Done. Tests pass and the new build is installed."
-            )], titles: [:])
+                reply: "**Done.** Tests pass and the new build is installed.\n\n- The banner shows what you asked and more of the reply\n- Markdown is stripped, so it reads as plain text\n- Replies keep their line breaks"
+            )
+            finished.prompt = "Show more of the reply when a session is done"
+            update(records: list + [finished], titles: [:])
         }
     }
 }

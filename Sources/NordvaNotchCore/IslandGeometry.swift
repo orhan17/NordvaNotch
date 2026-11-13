@@ -97,8 +97,8 @@ public enum IslandMode: Equatable, Sendable {
     /// Small wings either side of the notch: a status dot and a count, or a running timer,
     /// which needs the wider wings so its digits keep clear of the edge.
     case compact(timer: Bool)
-    /// One event, expanded for a few seconds.
-    case banner
+    /// One event, expanded for a few seconds; a finished turn adds lines for its prompt and reply.
+    case banner(lines: Int)
     /// A strip of session pills while the pointer rests on the notch.
     case peek(pills: Int)
     /// The full list, opened by a click; the timer row at the bottom only when the timer is on.
@@ -110,6 +110,11 @@ public enum IslandLayout {
     public static let timerWing = 52.0
     public static let bannerWidth = 440.0
     public static let bannerBody = 64.0
+    /// A banner with a prompt and reply is wider, and each line of them adds this much.
+    public static let bannerWideWidth = 520.0
+    public static let bannerLine = 16.0
+    public static let bannerLinesGap = 8.0
+    public static let maxReplyLines = 4
     public static let listWidth = 440.0
     public static let listHeader = 6.0
     public static let rowHeight = 50.0
@@ -148,8 +153,12 @@ public enum IslandLayout {
             return Size(width: notch, height: anchor.height)
         case .compact(let timer):
             return Size(width: notch + wingWidth(timer: timer) * 2, height: anchor.height)
-        case .banner:
-            return Size(width: max(bannerWidth, notch + wing * 2), height: anchor.height + bannerBody)
+        case .banner(let lines):
+            guard lines > 0 else {
+                return Size(width: max(bannerWidth, notch + wing * 2), height: anchor.height + bannerBody)
+            }
+            let extra = bannerLinesGap + Double(lines) * bannerLine
+            return Size(width: max(bannerWideWidth, notch + wing * 2), height: anchor.height + bannerBody + extra)
         case .peek:
             return Size(width: max(peekWidth, notch + wing * 2), height: anchor.height + peekBody)
         case .list(let rows, let timer):

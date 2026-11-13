@@ -63,7 +63,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     }
 
     static let promptLimit = 200
-    static let replyLimit = 400
+    static let replyLimit = 600
     public static let heartbeat: Double = 60
 
     /// The state machine. Pure, so the hook and the tests share it.
@@ -90,7 +90,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
             record.backgroundAgents = nil
             record.backgroundCommands = nil
             record.backgroundTasks = nil
-            if let prompt = event.prompt { record.prompt = clip(prompt, to: promptLimit) }
+            // A background task reporting back has no words of the person: the earlier prompt stays.
+            if let prompt = event.prompt.flatMap(SessionText.prompt) { record.prompt = clip(prompt, to: promptLimit) }
         case .preToolUse:
             switch event.toolName {
             case "AskUserQuestion":
@@ -149,7 +150,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
             record.status = .done
             record.waitReason = nil
             record.detail = nil
-            record.reply = event.lastAssistantMessage.map { clip($0, to: replyLimit) }
+            record.reply = event.lastAssistantMessage.flatMap { SessionText.reply($0, limit: replyLimit) }
             record.backgroundAgents = event.background.map(\.agents)
             record.backgroundCommands = event.background.map(\.commands)
             record.backgroundTasks = event.backgroundNames.isEmpty ? nil : event.backgroundNames

@@ -11,7 +11,7 @@ When you run two or three Claude Code sessions at once (in the terminal or in th
 
 ## Features
 
-- **Session events.** Finished, failed, asks a question, waits for plan approval, needs permission. The island expands for a few seconds with the session title, the project and the start of the last reply, then folds into a small dot with a count until you look.
+- **Session events.** Finished, failed, asks a question, waits for plan approval, needs permission. The island expands for a few seconds with the session title and the project. A finished turn also shows how long it took, its share of the plan limit, how full the context is, the prompt that started it and up to four lines of the reply as plain text. Then it folds into a small dot with a count until you look.
 - **Working sessions at a glance.** While any session works, a small spinner turns beside the notch with the number of working sessions. It is drawn by Core Animation, so it costs the app no redraws.
 - **Reminders.** A session that still waits for you, or a result you have not opened, is announced once more after 10 minutes (5 to 30, or off).
 - **Plan limits.** On a Pro or Max plan the list shows the five-hour and weekly limits, the numbers `/usage` shows, and warns at 80% of the five hours. Claude Code reports them only to a status line, which the terminal draws and the desktop app does not, so between reports the five hours are carried forward with the usage of every session since (shown with ≈).
@@ -244,7 +244,7 @@ The terminal then shows `5h 58% · 7d 16% · ctx 5%` at the bottom, and NordvaNo
 
 ## Privacy
 
-Everything stays on your Mac. The helper keeps one small JSON file per session in `~/Library/Application Support/NordvaNotch/sessions`: the session id, its folder, its title, the first 200 characters of your last prompt and the first 400 of Claude's last reply. Files of sessions untouched for three days are deleted.
+Everything stays on your Mac. The helper keeps one small JSON file per session in `~/Library/Application Support/NordvaNotch/sessions`: the session id, its folder, its title, the first 200 characters of your last prompt and the first 600 of Claude's last reply, as plain text. Files of sessions untouched for three days are deleted.
 
 To find the session title, the app reads the last few hundred kilobytes of the session transcript that Claude Code already keeps in `~/.claude/projects`.
 

@@ -1,3 +1,4 @@
+import AppKit
 import NordvaNotchCore
 import SwiftUI
 
@@ -276,6 +277,16 @@ private struct BannerView: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: actions.openList)
             switch model.banner {
+            case .session(let row) where lines > 0:
+                finished(row, trailing: trailing(for: row))
+                    .contentShape(Rectangle())
+                    .onTapGesture { actions.open(row) }
+                    .handCursor()
+            case .reminder(let row) where lines > 0:
+                finished(row, trailing: TurnText.waitingFor(row, now: Date()))
+                    .contentShape(Rectangle())
+                    .onTapGesture { actions.open(row) }
+                    .handCursor()
             case .session(let row):
                 event(
                     symbol: row.status == .working ? "ellipsis" : symbol(for: row),
@@ -365,6 +376,66 @@ private struct BannerView: View {
         }
     }
 
+    private var lines: Int {
+        if case .banner(let lines) = model.mode { return lines }
+        return 0
+    }
+
+    /// A finished turn: what it took, the prompt that started it and the start of the reply.
+    private func finished(_ row: SessionRow, trailing: String) -> some View {
+        let replyLines = lines - (row.prompt == nil ? 0 : 1)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: symbol(for: row))
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Palette.done)
+                    .frame(width: 38, height: 38)
+                    .background(Palette.done.opacity(0.18), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    Text(meta(for: row)).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Text(trailing)
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(Palette.done)
+                    .lineLimit(1)
+            }
+            .frame(height: 38)
+            VStack(alignment: .leading, spacing: 0) {
+                if let prompt = row.prompt {
+                    Text("› " + prompt)
+                        .font(.system(size: BannerText.size))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .lineLimit(1)
+                        .frame(height: IslandLayout.bannerLine, alignment: .leading)
+                }
+                if replyLines > 0, let reply = row.reply {
+                    Text(reply)
+                        .font(.system(size: BannerText.size))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineSpacing(BannerText.spacing)
+                        .lineLimit(replyLines)
+                        .frame(height: Double(replyLines) * IslandLayout.bannerLine, alignment: .topLeading)
+                }
+            }
+            .padding(.leading, BannerText.indent)
+            .padding(.top, IslandLayout.bannerLinesGap)
+        }
+        .padding(.horizontal, BannerText.padding)
+        .padding(.vertical, 13)
+        .frame(width: IslandLayout.bannerWideWidth, alignment: .topLeading)
+    }
+
+    private func meta(for row: SessionRow) -> String {
+        var parts = [row.project]
+        if let duration = TurnText.duration(of: row, now: Date()) { parts.append(duration) }
+        if let cost = TurnText.cost(of: row) { parts.append(cost) }
+        if let percent = row.contextPercent { parts.append("ctx \(percent)%") }
+        if let background = SessionNaming.backgroundText(of: row.record) { parts.append(background) }
+        return parts.joined(separator: " · ")
+    }
+
     private func event(symbol: String, tint: Color, title: String, detail: String, trailing: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
@@ -398,7 +469,7 @@ private struct BannerView: View {
             if let background = SessionNaming.backgroundText(of: row.record) { parts.append(background) }
         }
         if row.status == .done, model.showReply, let reply = row.reply {
-            parts.append(reply)
+            parts.append(SessionText.oneLine(reply))
         } else if row.status != .done {
             parts.append(row.statusText)
         }
@@ -605,7 +676,7 @@ private struct RowView: View {
             let duration = TurnText.duration(of: row, now: Date()).map { " · " + $0 } ?? ""
             let background = SessionNaming.backgroundText(of: row.record)
                 .map { Text(" · " + $0).foregroundColor(Palette.working) } ?? Text("")
-            return plain("\(row.project)\(duration)") + background + contextText + plain(" · \(reply)")
+            return plain("\(row.project)\(duration)") + background + contextText + plain(" · \(SessionText.oneLine(reply))")
         }
         return plain("\(row.project) · \(row.statusText)") + contextText
     }
@@ -667,7 +738,7 @@ enum TurnText {
         if let cost = row.costLong { parts.append(cost) }
         if let agents = agents(of: row) { parts.append(agents) }
         if let percent = row.contextPercent { parts.append("ctx \(percent)%") }
-        if row.status == .done, let reply = row.reply { parts.append(reply) }
+        if row.status == .done, let reply = row.reply { parts.append(SessionText.oneLine(reply)) }
         return parts.joined(separator: " · ")
     }
 
@@ -827,4 +898,23 @@ final class SpinnerView: NSView {
     required init?(coder: NSCoder) { nil }
 
     override var intrinsicContentSize: NSSize { NSSize(width: side, height: side) }
+}
+
+/// The reply under a finished turn's banner, and how many lines of it there will be.
+enum BannerText {
+    static let size: CGFloat = 12.5
+    static let spacing: CGFloat = 1
+    static let padding: CGFloat = 22
+    /// Under the title: past the round icon and its gap.
+    static let indent: CGFloat = 50
+
+    static func lineCount(_ text: String) -> Int {
+        let font = NSFont.systemFont(ofSize: size)
+        let width = IslandLayout.bannerWideWidth - padding * 2 - indent
+        let height = NSAttributedString(string: text, attributes: [.font: font])
+            .boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading])
+            .height
+        let line = NSLayoutManager().defaultLineHeight(for: font)
+        return min(IslandLayout.maxReplyLines, max(1, Int((height / line).rounded(.up))))
+    }
 }

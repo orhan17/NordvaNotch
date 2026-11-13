@@ -67,7 +67,7 @@ private let sid = "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b"
         let stop = event(#"{"session_id":"\#(sid)","hook_event_name":"Stop","last_assistant_message":"All tests pass.\n\nDone."}"#)
         let r = written(SessionRecord.apply(stop, to: start(), at: 130))
         #expect(r.status == .done)
-        #expect(r.reply == "All tests pass. Done.")
+        #expect(r.reply == "All tests pass.\nDone.")
         #expect(r.statusSince == 130)
         #expect(r.cwd == "/p")
     }
